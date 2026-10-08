@@ -4,23 +4,29 @@ import type { MeshRebuildResources, Renderable } from "../render/renderable.js";
 import type { RenderTask } from "./render-task.js";
 import { _buildBindings, type RenderTaskPopulation } from "./render-task-base.js";
 
-/** @internal Resolve queued auxiliary meshes only within a candidate generation. */
+/** @internal Resolve queued auxiliary meshes only within a candidate generation. A mesh whose
+ *  material group has not finished its first build yet (one added at runtime as the first of its
+ *  family, cast into a shadow map the same frame) stays queued, and is resolved once it has. */
 export function resolvePendingTaskMeshes(candidate: RenderTaskPopulation, created: MeshRebuildResources[] = []): MeshRebuildResources[] {
-    for (const { mesh, material } of candidate._pendingMeshes) {
+    const waiting: typeof candidate._pendingMeshes = [];
+    for (const request of candidate._pendingMeshes) {
+        const { mesh, material } = request;
         if (!material) {
             continue;
         }
-        const resources: MeshRebuildResources = { _lifetimeDisposers: [] };
         const rebuild = resolveMeshRebuild(candidate.scene, material._buildGroup);
         if (!rebuild) {
-            throw new Error("Material group has not completed its initial build in this scene.");
+            waiting.push(request);
+            continue;
         }
+        const resources: MeshRebuildResources = { _lifetimeDisposers: [] };
         created.push(resources);
         const renderable = rebuild(candidate.scene, mesh, material, resources);
         renderable._lifetimeDisposers = resources._lifetimeDisposers;
         candidate._renderables.push(renderable);
     }
     candidate._pendingMeshes.length = 0;
+    candidate._pendingMeshes.push(...waiting);
     return created;
 }
 

@@ -544,7 +544,7 @@ export async function buildPbrRenderables(scene: SceneContext, meshes: Mesh[], e
 
     scene._disposables.push(clearPbrPipelineCache);
 
-    return { renderables, rebuildSingle, _G: hasGammaAlbedo };
+    return { renderables, rebuildSingle };
 }
 
 /** @internal Per-scene PBR context stashed on the singleton `pbrGroupBuilder`

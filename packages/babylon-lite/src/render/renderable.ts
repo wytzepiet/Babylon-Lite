@@ -144,7 +144,6 @@ export interface MeshGroupBuildResult {
     renderables: Renderable[];
     updater?: SceneUniformUpdater;
     /** @internal True when this build result captured gamma-albedo PBR support. */
-    _G?: boolean;
     /** Closure used to rebuild a single mesh — captures the per-scene context
      *  (composer, BG caches, lights UBO, …) so material swaps and per-pass overrides
      *  reuse the same setup. The scene stores it on its material group as `r`;
