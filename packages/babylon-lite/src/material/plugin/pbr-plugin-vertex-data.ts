@@ -116,31 +116,36 @@ export function buildPbrVertexPluginFragment(plugins: readonly MaterialPlugin[],
     };
 }
 
-/** @internal Plugin attribute names in binding order (the order {@link buildPbrVertexPluginFragment} lays them out). */
+/** @internal Plugin attribute buffer names in binding order (the order {@link buildPbrVertexPluginFragment} lays them out). */
 export function pluginAttributeNames(plugins: readonly MaterialPlugin[]): string[] {
-    return plugins.flatMap((plugin) => plugin.getAttributes?.() ?? []).map((attribute) => attribute.name);
+    return [...new Set(plugins.flatMap((plugin) => plugin.getAttributes?.() ?? []).map((attribute) => attribute.buffer ?? attribute.name))];
 }
 
 const ATTRIBUTE_FLOATS: Record<PluginAttributeDecl["type"], number> = { f32: 1, "vec2<f32>": 2, "vec3<f32>": 3, "vec4<f32>": 4 };
 
-/** One float32 vertex buffer per plugin attribute, bound after every built-in vertex buffer. */
+/** One float32 vertex buffer per named plugin buffer, its attributes interleaved, bound after every built-in vertex buffer. */
 function attributeBuffers(attributes: readonly PluginAttributeDecl[], nextLoc: number): { _buffers: GPUVertexBufferLayout[]; _nextLoc: number; _inputs: string[] } {
-    const _buffers: GPUVertexBufferLayout[] = [];
+    const layouts = new Map<string, GPUVertexBufferLayout & { arrayStride: number; attributes: GPUVertexAttribute[] }>();
     const _inputs: string[] = [];
     for (const attribute of attributes) {
         const floats = ATTRIBUTE_FLOATS[attribute.type];
         if (!floats) {
             throw new Error(`Material plugin attribute type "${attribute.type}" is unsupported; use f32 or a vec2/3/4<f32>.`);
         }
-        _buffers.push({
-            arrayStride: floats * 4,
-            stepMode: attribute.perInstance ? "instance" : "vertex",
-            attributes: [{ shaderLocation: nextLoc, offset: 0, format: (floats === 1 ? "float32" : `float32x${floats}`) as GPUVertexFormat }],
-        });
+        const name = attribute.buffer ?? attribute.name;
+        const stepMode = attribute.perInstance ? "instance" : "vertex";
+        let layout = layouts.get(name);
+        if (!layout) {
+            layouts.set(name, (layout = { arrayStride: 0, stepMode, attributes: [] }));
+        } else if (layout.stepMode !== stepMode) {
+            throw new Error(`Material plugin buffer "${name}" mixes per-vertex and per-instance attributes.`);
+        }
+        layout.attributes.push({ shaderLocation: nextLoc, offset: layout.arrayStride, format: (floats === 1 ? "float32" : `float32x${floats}`) as GPUVertexFormat });
+        layout.arrayStride += floats * 4;
         _inputs.push(wgsl`@location(${nextLoc}) ${attribute.name}:${attribute.type},`);
         nextLoc++;
     }
-    return { _buffers, _nextLoc: nextLoc, _inputs };
+    return { _buffers: [...layouts.values()], _nextLoc: nextLoc, _inputs };
 }
 
 function exposeMaterialUboToVertex(composed: ComposedShader): ComposedShader {

@@ -9,8 +9,9 @@ import { bumpVisibilityEpoch } from "../engine/engine.js";
 import type { Mesh } from "./mesh.js";
 
 /**
- * Set the data of a plugin attribute on `mesh`: one value per vertex, or per thin instance for an
- * attribute declared `perInstance`, packed as float32 with the attribute's own width.
+ * Set the data of a plugin attribute buffer on `mesh` (an attribute's `buffer`, or its name): one
+ * value per vertex, or per thin instance for attributes declared `perInstance`, as float32, the
+ * buffer's attributes interleaved in their declared order.
  *
  * Writing data that fits the attribute's current buffer keeps that buffer, so recorded draws stay
  * valid; larger data replaces it and re-records the draws that bind it.

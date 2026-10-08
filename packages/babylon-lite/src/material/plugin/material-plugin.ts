@@ -68,6 +68,11 @@ export interface PluginAttributeDecl {
     readonly type: PluginAttributeType;
     /** One value per thin instance instead of one per vertex. Default false. */
     readonly perInstance?: boolean;
+    /** The vertex buffer the attribute's data lives in, named for `setMeshAttribute`. Attributes
+     *  naming the same buffer are interleaved in it in declaration order (and must agree on
+     *  `perInstance`), which keeps a mesh within the device's vertex-buffer limit (8 by default).
+     *  Default: a buffer of its own, named as the attribute. */
+    readonly buffer?: string;
 }
 
 /** A texture + sampler pair contributed by a plugin. `texture`/`sampler` are the
