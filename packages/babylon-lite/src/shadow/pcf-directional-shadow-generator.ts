@@ -54,7 +54,9 @@ export function createPcfDirectionalShadowGenerator(engine: EngineContext, _ligh
     const orthoMaxZ = cfg.orthoMaxZ ?? 10000;
     const forceRefreshEveryFrame = cfg.forceRefreshEveryFrame ?? false;
 
-    const _lightMatrix = new F32(16);
+    // Until a map is drawn (no casters yet), every point projects off it, and is lit; a zero
+    // matrix would divide by zero and shade every receiver black.
+    const _lightMatrix = new F32([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 4, 4, 0, 1]);
     const _shadowsInfo = new F32([darkness, mapSize, 1.0 / mapSize, 0]);
     const _depthValues = new F32([0, 1]);
     const { ubo: _shadowUBO } = createSharedShadowUBO(engine, _lightMatrix, _depthValues, _shadowsInfo);

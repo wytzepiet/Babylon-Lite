@@ -91,7 +91,9 @@ export function createPcfSpotlightShadowGenerator(engine: EngineContext, _light:
     // Shadow params UBO (depthScale slot reused as texel size for PCF offsets)
     const _shadowParamsUBO = createShadowParamsUBO(engine, bias, 1.0 / mapSize);
 
-    const _lightMatrix = new F32(16);
+    // Until a map is drawn (no casters yet), every point projects off it, and is lit; a zero
+    // matrix would divide by zero and shade every receiver black.
+    const _lightMatrix = new F32([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 4, 4, 0, 1]);
     const _shadowsInfo = new F32([darkness, mapSize, 1.0 / mapSize, 0]);
     const _depthValues = new F32([0, far]);
 
