@@ -128,10 +128,10 @@ function attachRecoveryCapture(engine: EngineContext): void {
                 fallback,
             });
         },
-        p(tex: Texture2D, data: Uint8Array, options: PixelsTexture2DOptions): void {
+        p(tex: Texture2D, data: Uint8Array | Uint16Array | Float32Array, options: PixelsTexture2DOptions, bytesPerTexel = 4): void {
             stamp(tex, {
                 kind: "pixels",
-                data: data.slice(0, tex.width * tex.height * 4),
+                data: new Uint8Array(data.buffer, data.byteOffset, data.byteLength).slice(0, tex.width * tex.height * bytesPerTexel),
                 width: tex.width,
                 height: tex.height,
                 options: { ...options },
@@ -146,10 +146,11 @@ function attachRecoveryCapture(engine: EngineContext): void {
                 return;
             }
             const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-            const rowBytes = width * 4;
+            const texel = source.data.length / (source.width * source.height);
+            const rowBytes = width * texel;
             for (let row = 0; row < height; row++) {
                 const srcStart = dataOffset + row * bytesPerRow;
-                const dstStart = ((y + row) * source.width + x) * 4;
+                const dstStart = ((y + row) * source.width + x) * texel;
                 source.data.set(bytes.subarray(srcStart, srcStart + rowBytes), dstStart);
             }
         },

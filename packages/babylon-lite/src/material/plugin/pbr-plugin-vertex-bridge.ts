@@ -3,7 +3,7 @@ import type { PbrMaterialProps } from "../pbr/pbr-material.js";
 import type { MaterialPlugin } from "./material-plugin.js";
 import { bindPluginTextures, collectPluginTextures, enabledPlugins, writePluginUbo } from "./plugin-bridge-shared.js";
 import { _allocatePbrPluginIndex, _getPbrPluginFragment, _registerPbrPluginFragment, _setActivePbrPluginExt } from "./pbr-plugin-registry.js";
-import { buildPbrVertexPluginFragment, pbrVertexPluginSignature } from "./pbr-plugin-vertex-data.js";
+import { buildPbrVertexPluginFragment, pbrVertexPluginSignature, pluginAttributeNames } from "./pbr-plugin-vertex-data.js";
 
 let signatureToIndex: Map<string, number> | null = null;
 
@@ -27,6 +27,8 @@ const pbrVertexPluginExt: PbrExt = {
         const plugins = pbrMaterial.plugins;
         pbrMaterial._preparedPlugins = plugins?.length ? enabledPlugins(plugins) : undefined;
         pbrMaterial._pi = plugins?.length ? indexFor(plugins) : 0;
+        const names = pbrMaterial._preparedPlugins ? pluginAttributeNames(pbrMaterial._preparedPlugins) : [];
+        pbrMaterial._an = names.length ? names : undefined;
         return { f: 0, f2: 0 };
     },
     frag(context) {

@@ -6,6 +6,10 @@ interface ShadowGeneratorRuntimeConfig {
     _orthoMinZ?: number;
     _orthoMaxZ?: number;
     _forceRefreshEveryFrame: boolean;
+    /** World-space box (minX, minY, minZ, maxX, maxY, maxZ) the shadow map covers instead of the casters' bounds (`setShadowGeneratorBounds`). */
+    _bounds?: Float32Array | null;
+    /** Bumped each time `_bounds` changes, so the map is redrawn. */
+    _boundsVersion?: number;
 }
 
 export interface ShadowTaskInternalState {

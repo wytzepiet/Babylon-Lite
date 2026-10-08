@@ -156,6 +156,7 @@ export function composeShader(template: ShaderTemplate, fragments: readonly Shad
         if (f._pipelineVertexBuffers) {
             const r = f._pipelineVertexBuffers(nextLoc);
             _vertexBufferLayouts.push(...r._buffers);
+            inputLines.push(...(r._inputs ?? []));
             nextLoc = r._nextLoc;
         }
     }

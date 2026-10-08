@@ -466,6 +466,9 @@ export async function buildPbrRenderables(scene: SceneContext, meshes: Mesh[], e
             if (ti && syncThinInstanceBuffers) {
                 slot = syncThinInstanceBuffers(engine, ti, pass, slot, hasTIColor, cullBinding?.cullDrawBufs);
             }
+            for (const name of mat._an ?? []) {
+                pass.setVertexBuffer(slot++, mesh._attributes![name]!);
+            }
 
             pass.setIndexBuffer(gpu.indexBuffer, gpu.indexFormat);
             if (cullBinding) {

@@ -79,6 +79,8 @@ export function multiply4x4(a: Float32Array, b: Float32Array): Float32Array {
 }
 
 /** Fit an orthographic directional-light projection to caster world-space bounds. */
+const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] as const;
+
 export function computeDirectionalLightMatrix(
     light: DirectionalLight,
     casterMeshes: readonly Mesh[],
@@ -86,7 +88,8 @@ export function computeDirectionalLightMatrix(
     orthoMaxZ: number,
     offX = 0,
     offY = 0,
-    offZ = 0
+    offZ = 0,
+    bounds?: Float32Array | null
 ): { _view: Float32Array; _viewProj: Float32Array; _near: number; _far: number } {
     const lightWorld = light.worldMatrix;
     const direction = light.direction;
@@ -98,7 +101,8 @@ export function computeDirectionalLightMatrix(
     let maxX = -Infinity;
     let minY = Infinity;
     let maxY = -Infinity;
-    for (const mesh of casterMeshes) {
+    const boxes = bounds ? [{ worldMatrix: IDENTITY, boundMin: [bounds[0]!, bounds[1]!, bounds[2]!] as const, boundMax: [bounds[3]!, bounds[4]!, bounds[5]!] as const }] : casterMeshes;
+    for (const mesh of boxes) {
         const world = mesh.worldMatrix;
         const boundMin = mesh.boundMin ?? [-0.5, -0.5, -0.5];
         const boundMax = mesh.boundMax ?? [0.5, 0.5, 0.5];

@@ -29,6 +29,55 @@ export interface PixelsTexture2DOptions {
     /** Use sRGB format (rgba8unorm-srgb) so the hardware converts to linear on
      *  sample. Use for color data; leave false for lookup tables. Default false. */
     srgb?: boolean;
+    /** Texel format of `data`. Default 'rgba8unorm' (or its sRGB form). Half-float formats take
+     *  their texels as the half floats' bits in a `Uint16Array`; 32-bit float formats as a
+     *  `Float32Array`. Filtering a 32-bit float format needs the device's `float32-filterable`. */
+    format?: PixelsTextureFormat;
+    /** Build a full mip chain, box-filtered, and rebuild it on every update. Default false. */
+    mipmaps?: boolean;
+    /** Mip filter, when `mipmaps` is set. Default 'linear'. */
+    mipmapFilter?: GPUMipmapFilterMode;
+}
+
+/** Formats {@link createTexture2DFromPixels} takes. */
+export type PixelsTextureFormat = "r8unorm" | "rg8unorm" | "rgba8unorm" | "r16float" | "rg16float" | "rgba16float" | "r32float" | "rg32float" | "rgba32float";
+
+const TEXEL_BYTES: Record<string, number> = {
+    r8unorm: 1,
+    rg8unorm: 2,
+    rgba8unorm: 4,
+    "rgba8unorm-srgb": 4,
+    r16float: 2,
+    rg16float: 4,
+    rgba16float: 8,
+    r32float: 4,
+    rg32float: 8,
+    rgba32float: 16,
+};
+
+function texelBytes(format: GPUTextureFormat): number {
+    const bytes = TEXEL_BYTES[format];
+    if (!bytes) {
+        throw new Error(`Pixel textures do not take format ${format}.`);
+    }
+    return bytes;
+}
+
+let _mipmaps: typeof import("./mipmap-preparation.js") | undefined;
+
+/** Rebuild a pixel texture's mips from its level 0 (no-op without mips). */
+function writeMipmaps(engine: EngineContext, texture: GPUTexture): void {
+    if (texture.mipLevelCount <= 1) {
+        return;
+    }
+    const encoder = engine._device.createCommandEncoder();
+    _mipmaps!.recordPreparedMipmaps(encoder, _mipmaps!.prepareMipmaps(engine, texture));
+    engine._device.queue.submit([encoder.finish()]);
+}
+
+/** Load the mip builder, once, before creating pixel textures with `mipmaps: true`. */
+export async function enablePixelTextureMipmaps(): Promise<void> {
+    _mipmaps ??= await import("./mipmap-preparation.js");
 }
 
 /**
@@ -40,36 +89,48 @@ export interface PixelsTexture2DOptions {
  * @param height - Texture height in pixels (\>= 1).
  * @param options - Sampler / format overrides.
  */
-export function createTexture2DFromPixels(engine: EngineContext, data: Uint8Array, width: number, height: number, options: PixelsTexture2DOptions = {}): Texture2D {
+export function createTexture2DFromPixels(
+    engine: EngineContext,
+    data: Uint8Array | Uint16Array | Float32Array,
+    width: number,
+    height: number,
+    options: PixelsTexture2DOptions = {}
+): Texture2D {
     if (width < 1 || height < 1) {
         throw new Error(`createTexture2DFromPixels: width/height must be >= 1 (got ${width}x${height})`);
     }
-    const expected = width * height * 4;
-    if (data.length < expected) {
-        throw new Error(`createTexture2DFromPixels: data too short — need ${expected} bytes for ${width}x${height} RGBA, got ${data.length}`);
-    }
-
     const device = engine._device;
-    const format: GPUTextureFormat = options.srgb ? "rgba8unorm-srgb" : "rgba8unorm";
+    const format: GPUTextureFormat = options.format ?? (options.srgb ? "rgba8unorm-srgb" : "rgba8unorm");
+    const bytesPerTexel = texelBytes(format);
+    const expected = width * height * bytesPerTexel;
+    if (data.byteLength < expected) {
+        throw new Error(`createTexture2DFromPixels: data too short — need ${expected} bytes for ${width}x${height} ${format}, got ${data.byteLength}`);
+    }
+    if (options.mipmaps && !_mipmaps) {
+        throw new Error("createTexture2DFromPixels: call enablePixelTextureMipmaps() before asking for mipmaps.");
+    }
 
     const texture = device.createTexture({
         size: { width, height },
         format,
-        usage: TU.TEXTURE_BINDING | TU.COPY_DST,
+        mipLevelCount: options.mipmaps ? Math.floor(Math.log2(Math.max(width, height))) + 1 : 1,
+        usage: TU.TEXTURE_BINDING | TU.COPY_DST | (options.mipmaps ? TU.RENDER_ATTACHMENT : 0),
     });
 
-    device.queue.writeTexture({ texture }, data as Uint8Array<ArrayBuffer>, { bytesPerRow: width * 4, rowsPerImage: height }, { width, height });
+    device.queue.writeTexture({ texture }, data as Uint8Array<ArrayBuffer>, { bytesPerRow: width * bytesPerTexel, rowsPerImage: height }, { width, height });
+    writeMipmaps(engine, texture);
 
     const samplerDesc: TextureSamplerDescriptor = {
         addressModeU: options.addressModeU ?? "clamp-to-edge",
         addressModeV: options.addressModeV ?? "clamp-to-edge",
         minFilter: options.minFilter ?? "nearest",
         magFilter: options.magFilter ?? "nearest",
+        ...(options.mipmaps ? { mipmapFilter: options.mipmapFilter ?? "linear" } : {}),
     };
     const sampler = getOrCreateSampler(engine, samplerDesc);
 
     const tex: Texture2D = { texture, view: texture.createView(), sampler, width, height };
-    engine._dlr?.p(tex, data, options);
+    engine._dlr?.p(tex, data, options, bytesPerTexel);
     acquireTexture(tex);
     return tex;
 }
@@ -148,21 +209,31 @@ export function createRenderTexture2D(engine: EngineContext, width: number, heig
  * @param width - Region width in texels (default `tex.width`).
  * @param height - Region height in texels (default `tex.height`).
  */
-export function updateTexture2DFromPixels(engine: EngineContext, tex: Texture2D, data: Uint8Array, x = 0, y = 0, width = tex.width, height = tex.height): void {
+export function updateTexture2DFromPixels(
+    engine: EngineContext,
+    tex: Texture2D,
+    data: Uint8Array | Uint16Array | Float32Array,
+    x = 0,
+    y = 0,
+    width = tex.width,
+    height = tex.height
+): void {
     if (width < 1 || height < 1) {
         throw new Error(`updateTexture2DFromPixels: width/height must be >= 1 (got ${width}x${height})`);
     }
-    const expected = width * height * 4;
-    if (data.length < expected) {
-        throw new Error(`updateTexture2DFromPixels: data too short — need ${expected} bytes for ${width}x${height} RGBA, got ${data.length}`);
+    const bytesPerTexel = texelBytes(tex.texture.format);
+    const expected = width * height * bytesPerTexel;
+    if (data.byteLength < expected) {
+        throw new Error(`updateTexture2DFromPixels: data too short — need ${expected} bytes for ${width}x${height} ${tex.texture.format}, got ${data.byteLength}`);
     }
     engine._device.queue.writeTexture(
         { texture: tex.texture, origin: { x, y } },
         data as Uint8Array<ArrayBuffer>,
-        { bytesPerRow: width * 4, rowsPerImage: height },
+        { bytesPerRow: width * bytesPerTexel, rowsPerImage: height },
         { width, height }
     );
-    engine._dlr?.w(tex, data, x, y, width, height);
+    writeMipmaps(engine, tex.texture);
+    engine._dlr?.w(tex, data, x, y, width, height, 0, width * bytesPerTexel);
 }
 
 /** Sampler / format overrides for `createTexture3DFromPixels()`. */

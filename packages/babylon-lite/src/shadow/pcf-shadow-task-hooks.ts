@@ -35,6 +35,7 @@ export interface PcfTaskState extends ShadowTaskInternalState {
     _lastLightVersion: number;
     /** @internal Floating-origin offset version (active camera worldMatrixVersion) at last shadow-map render; -1 when never rendered. */
     _lastFoVersion: number;
+    _lastBoundsVersion: number;
     /** @internal */
     _shadowUboData: Float32Array;
     /** @internal */
@@ -157,6 +158,7 @@ export function ensurePcfShadowTaskState(
         _lastCasterVersion: -1,
         _lastLightVersion: -1,
         _lastFoVersion: -1,
+        _lastBoundsVersion: -1,
         _shadowUboData: new F32(24),
         _casterMeshes: casterMeshes,
         _casterMaterials: casterMaterials,
@@ -230,7 +232,14 @@ export function renderPcfShadowMap(
     const offX = foCam ? foCam.worldMatrix[12]! : 0;
     const offY = foCam ? foCam.worldMatrix[13]! : 0;
     const offZ = foCam ? foCam.worldMatrix[14]! : 0;
-    if (!sg._config._forceRefreshEveryFrame && casterVersion === state._lastCasterVersion && lightVersion === state._lastLightVersion && foVersion === state._lastFoVersion) {
+    const boundsVersion = sg._config._boundsVersion ?? 0;
+    if (
+        !sg._config._forceRefreshEveryFrame &&
+        casterVersion === state._lastCasterVersion &&
+        lightVersion === state._lastLightVersion &&
+        foVersion === state._lastFoVersion &&
+        boundsVersion === state._lastBoundsVersion
+    ) {
         return 0;
     }
 
@@ -247,6 +256,7 @@ export function renderPcfShadowMap(
     state._lastCasterVersion = casterVersion;
     state._lastLightVersion = lightVersion;
     state._lastFoVersion = foVersion;
+    state._lastBoundsVersion = boundsVersion;
     return state._task.execute?.() ?? 0;
 }
 

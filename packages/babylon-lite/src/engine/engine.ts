@@ -276,7 +276,7 @@ interface DeviceLostRecoveryCapture {
     u(tex: Texture2D, url: string, opts: Texture2DOptions): void;
     s(tex: Texture2D, r: number, g: number, b: number, a: number): void;
     b(tex: Texture2D, bitmap: ImageBitmap | null, srgb: boolean, mipMaps: boolean, fallback?: Uint8Array): void;
-    p(tex: Texture2D, data: Uint8Array, options: PixelsTexture2DOptions): void;
+    p(tex: Texture2D, data: Uint8Array | Uint16Array | Float32Array, options: PixelsTexture2DOptions, bytesPerTexel?: number): void;
     r(tex: Texture2D, width: number, height: number, format: GPUTextureFormat, samplerDesc: GPUSamplerDescriptor): void;
     w(tex: Texture2D, data: ArrayBufferView, x: number, y: number, width: number, height: number, dataOffset?: number, bytesPerRow?: number): void;
     m(

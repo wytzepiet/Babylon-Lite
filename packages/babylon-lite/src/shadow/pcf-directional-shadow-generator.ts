@@ -95,7 +95,7 @@ export function createPcfDirectionalShadowGenerator(engine: EngineContext, _ligh
     };
     sg._renderShadowMap = (engine, state) => {
         return renderPcfShadowMap(engine, sg, state as PcfTaskState, (casterMeshes, offX, offY, offZ) =>
-            computeDirectionalLightMatrix(_light, casterMeshes, orthoMinZ, orthoMaxZ, offX, offY, offZ)
+            computeDirectionalLightMatrix(_light, casterMeshes, orthoMinZ, orthoMaxZ, offX, offY, offZ, _config._bounds)
         );
     };
     return sg;

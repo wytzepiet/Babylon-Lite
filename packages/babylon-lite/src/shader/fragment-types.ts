@@ -160,7 +160,7 @@ export interface ShaderFragment {
 
     /** @internal Extra pipeline vertex buffer layouts (skeleton joints/weights).
      *  Called with next available shader location. Returns layouts + next location. */
-    readonly _pipelineVertexBuffers?: (nextLoc: number) => { _buffers: GPUVertexBufferLayout[]; _nextLoc: number };
+    readonly _pipelineVertexBuffers?: (nextLoc: number) => { _buffers: GPUVertexBufferLayout[]; _nextLoc: number; _inputs?: readonly string[] };
 
     /** @internal `@builtin` declarations for vertex function params (e.g. vertex_index for morph targets) */
     readonly _vertexBuiltins?: readonly { readonly _name: string; readonly _builtin: string; readonly _type: string }[];

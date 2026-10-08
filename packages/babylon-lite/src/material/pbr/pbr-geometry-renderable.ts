@@ -353,6 +353,9 @@ export function buildPbrGeometryRenderable(scene: SceneContext, mesh: Mesh, view
         if (ti && syncThinInstanceBuffers) {
             slot = syncThinInstanceBuffers(engine, ti, pass, slot, hasTIColor);
         }
+        for (const name of source._an ?? []) {
+            pass.setVertexBuffer(slot++, mesh._attributes![name]!);
+        }
         pass.setIndexBuffer(gpu.indexBuffer, gpu.indexFormat);
         if (ti && thinDrawArgs) {
             pass.drawIndexedIndirect(thinDrawArgs, 0);

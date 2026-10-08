@@ -146,6 +146,8 @@ export interface Mesh extends SceneNode {
     renderOnTop?: boolean;
     /** Thin instance data (CPU-side). GPU buffer managed by render system. */
     thinInstances?: ThinInstanceData | null;
+    /** @internal Vertex buffers of material-plugin attributes by name (`setMeshAttribute`). */
+    _attributes?: Record<string, GPUBuffer>;
     /** @internal Optional feature-owned setup-time world-bounds expansion. */
     _expandWorldBounds?: (bounds: WorldAabbAcc, mesh: Mesh) => void;
     /** Explicit opt-in that this mesh's RGBA vertex or thin-instance colours drive

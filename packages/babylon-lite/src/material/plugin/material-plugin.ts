@@ -57,6 +57,19 @@ export interface PluginVaryingDecl {
     readonly type: PluginVaryingType;
 }
 
+/** WGSL type of a plugin vertex attribute; each is one float32 vertex buffer. */
+export type PluginAttributeType = "f32" | "vec2<f32>" | "vec3<f32>" | "vec4<f32>";
+
+/** A vertex (or per-instance) attribute contributed by a plugin, read in vertex custom code by its
+ *  name. Its data lives on the mesh, set with `setMeshAttribute`. Requires
+ *  `enablePbrMaterialPluginVertexData`. */
+export interface PluginAttributeDecl {
+    readonly name: string;
+    readonly type: PluginAttributeType;
+    /** One value per thin instance instead of one per vertex. Default false. */
+    readonly perInstance?: boolean;
+}
+
 /** A texture + sampler pair contributed by a plugin. `texture`/`sampler` are the
  *  WGSL variable names used by the plugin's custom code; the engine wires up the
  *  GPU bindings in declaration order from {@link MaterialPlugin.bindTextures}. */
@@ -99,6 +112,8 @@ export interface MaterialPlugin {
     getCustomCode?(shaderType: "vertex" | "fragment"): Partial<Record<MaterialPluginPoint, string>> | null;
     /** Declare custom UBO fields appended to the host material's uniform buffer. */
     getUniforms?(): { ubo?: PluginUboField[] };
+    /** Declare custom vertex or per-instance attributes (requires `enablePbrMaterialPluginVertexData`). */
+    getAttributes?(): PluginAttributeDecl[];
     /** Declare custom vertex-to-fragment varyings. */
     getVaryings?(): PluginVaryingDecl[];
     /** Declare custom texture/sampler bindings. */

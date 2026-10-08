@@ -1,6 +1,6 @@
 import type { BindingDecl, ComposedShader, FragmentSlot, ShaderFragment, UboField, Varying, VertexSlot, WgslScalarType } from "../../shader/fragment-types.js";
 import { wgsl, type WgslSource } from "../../shader/wgsl.js";
-import type { MaterialPlugin, MaterialPluginPoint } from "./material-plugin.js";
+import type { MaterialPlugin, MaterialPluginPoint, PluginAttributeDecl } from "./material-plugin.js";
 import { enabledPlugins, pluginSignature } from "./plugin-bridge-shared.js";
 
 const STAGE_VERTEX = 0x1;
@@ -27,6 +27,7 @@ export function pbrVertexPluginSignature(plugins: readonly MaterialPlugin[]): st
     for (const plugin of plugins) {
         if (plugin.isEnabled !== false) {
             parts.push(JSON.stringify(plugin.getVaryings?.() ?? null));
+            parts.push(JSON.stringify(plugin.getAttributes?.() ?? null));
         }
     }
     return parts.join("|");
@@ -45,6 +46,7 @@ export function buildPbrVertexPluginFragment(plugins: readonly MaterialPlugin[],
     const uboFields: UboField[] = [];
     const varyings: Varying[] = [];
     const bindings: BindingDecl[] = [];
+    const attributes: PluginAttributeDecl[] = [];
     let materialUboVertexVisible = false;
 
     const append = (bucket: Partial<Record<string, WgslSource>>, key: string, code: string): void => {
@@ -83,6 +85,7 @@ export function buildPbrVertexPluginFragment(plugins: readonly MaterialPlugin[],
             uboFields.push({ _name: field.name, _type: field.type as WgslScalarType });
             materialUboVertexVisible ||= field.visibility === "vertex" || field.visibility === "vertex-fragment";
         }
+        attributes.push(...(plugin.getAttributes?.() ?? []));
         for (const varying of plugin.getVaryings?.() ?? []) {
             assertFloatVaryingType(varying.type);
             varyings.push({ _name: varying.name, _type: varying.type });
@@ -109,7 +112,35 @@ export function buildPbrVertexPluginFragment(plugins: readonly MaterialPlugin[],
         _uboFields: uboFields.length ? uboFields : undefined,
         _bindings: bindings.length ? bindings : undefined,
         _pc: materialUboVertexVisible ? exposeMaterialUboToVertex : undefined,
+        _pipelineVertexBuffers: attributes.length ? (nextLoc) => attributeBuffers(attributes, nextLoc) : undefined,
     };
+}
+
+/** @internal Plugin attribute names in binding order (the order {@link buildPbrVertexPluginFragment} lays them out). */
+export function pluginAttributeNames(plugins: readonly MaterialPlugin[]): string[] {
+    return plugins.flatMap((plugin) => plugin.getAttributes?.() ?? []).map((attribute) => attribute.name);
+}
+
+const ATTRIBUTE_FLOATS: Record<PluginAttributeDecl["type"], number> = { f32: 1, "vec2<f32>": 2, "vec3<f32>": 3, "vec4<f32>": 4 };
+
+/** One float32 vertex buffer per plugin attribute, bound after every built-in vertex buffer. */
+function attributeBuffers(attributes: readonly PluginAttributeDecl[], nextLoc: number): { _buffers: GPUVertexBufferLayout[]; _nextLoc: number; _inputs: string[] } {
+    const _buffers: GPUVertexBufferLayout[] = [];
+    const _inputs: string[] = [];
+    for (const attribute of attributes) {
+        const floats = ATTRIBUTE_FLOATS[attribute.type];
+        if (!floats) {
+            throw new Error(`Material plugin attribute type "${attribute.type}" is unsupported; use f32 or a vec2/3/4<f32>.`);
+        }
+        _buffers.push({
+            arrayStride: floats * 4,
+            stepMode: attribute.perInstance ? "instance" : "vertex",
+            attributes: [{ shaderLocation: nextLoc, offset: 0, format: (floats === 1 ? "float32" : `float32x${floats}`) as GPUVertexFormat }],
+        });
+        _inputs.push(wgsl`@location(${nextLoc}) ${attribute.name}:${attribute.type},`);
+        nextLoc++;
+    }
+    return { _buffers, _nextLoc: nextLoc, _inputs };
 }
 
 function exposeMaterialUboToVertex(composed: ComposedShader): ComposedShader {

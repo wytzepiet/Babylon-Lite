@@ -57,6 +57,9 @@ export function disposeMeshGpu(mesh: Mesh): void {
         ti._colorGpuBuffer?.destroy();
         ti._drawArgsBuffer?.destroy();
     }
+    for (const name in mesh._attributes) {
+        mesh._attributes[name]!.destroy();
+    }
     const sk = mesh.skeleton;
     if (sk && release(sk)) {
         sk._disposed = true;

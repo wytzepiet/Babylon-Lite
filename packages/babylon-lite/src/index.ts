@@ -403,7 +403,8 @@ export type { RenderDrawTask, RenderDrawTaskConfig } from "./render-shader/rende
 
 // ─── Textures ────────────────────────────────────────────────────────
 export { createSolidTexture2D } from "./texture/solid-texture.js";
-export { createTexture2DFromPixels, updateTexture2DFromPixels, createRenderTexture2D } from "./texture/pixels-texture.js";
+export { createTexture2DFromPixels, updateTexture2DFromPixels, createRenderTexture2D, enablePixelTextureMipmaps } from "./texture/pixels-texture.js";
+export type { PixelsTextureFormat } from "./texture/pixels-texture.js";
 export { createTexture3DFromPixels } from "./texture/pixels-texture.js";
 export type { Texture3D, PixelsTexture3DOptions } from "./texture/pixels-texture.js";
 export type { PixelsTexture2DOptions, RenderTexture2DOptions } from "./texture/pixels-texture.js";
@@ -691,11 +692,14 @@ export type {
     PluginUboField,
     PluginVaryingType,
     PluginVaryingDecl,
+    PluginAttributeDecl,
+    PluginAttributeType,
     PluginSamplerDecl,
     PluginTextureBinding,
 } from "./material/plugin/material-plugin.js";
 export { enableMaterialPlugins, reconcileMaterialPlugins } from "./material/plugin/enable-material-plugins.js";
 export { enablePbrMaterialPluginVertexData } from "./material/plugin/enable-pbr-material-plugin-vertex-data.js";
+export { setMeshAttribute } from "./mesh/mesh-attribute.js";
 export { bakeStdPluginMaterial } from "./material/plugin/std-plugin-bridge.js";
 export { enableMaterialStencil } from "./material/enable-material-stencil.js";
 export { getAlphaToCoverage, setAlphaToCoverage } from "./render/alpha-to-coverage.js";
@@ -732,6 +736,8 @@ export type { TransformNode } from "./scene/transform-node.js";
 export type { SceneNode } from "./scene/scene-node.js";
 export { loadBabylon } from "./loader-babylon/load-babylon.js";
 export { loadEnvironment } from "./loader-env/load-env.js";
+export { createCubeEnvironment, updateCubeEnvironment } from "./loader-env/cube-environment.js";
+export type { CubeEnvironment, CubeEnvironmentOptions } from "./loader-env/cube-environment.js";
 export { computeProceduralSkySunColor, loadProceduralSkyEnvironment, updateProceduralSkyEnvironment } from "./loader-env/procedural-sky-environment.js";
 export type { ProceduralSkyEnvironment, ProceduralSkyEnvironmentLoadOptions, ProceduralSkyEnvironmentOptions } from "./loader-env/procedural-sky-environment.js";
 export { loadDdsEnvironment } from "./loader-env/load-dds-env.js";
@@ -761,6 +767,7 @@ export type { LinearDepthMaterialOptions } from "./render/linear-depth-material.
 export { createEsmDirectionalShadowGenerator } from "./shadow/esm-directional-shadow-generator.js";
 export { createPcfSpotlightShadowGenerator } from "./shadow/pcf-spotlight-shadow-generator.js";
 export { createPcfDirectionalShadowGenerator } from "./shadow/pcf-directional-shadow-generator.js";
+export { setShadowGeneratorBounds } from "./shadow/shadow-bounds.js";
 export { createCsmDirectionalShadowGenerator, getCsmReceiverTexture, onCsmReceiverUpdate } from "./shadow/csm-directional-shadow-generator.js";
 export { enableCsmStaticCache } from "./shadow/enable-csm-static-cache.js";
 export { createCsmRefitGate } from "./shadow/csm-refit-gate.js";

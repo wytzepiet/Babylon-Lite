@@ -26,6 +26,8 @@ export interface Material {
     _pi?: number;
     /** @internal Enabled, priority-sorted material plugins prepared when the material signature is baked. */
     _preparedPlugins?: readonly MaterialPlugin[];
+    /** @internal Plugin attribute names, in the vertex-buffer order the plugin pipeline expects after the built-in ones. */
+    _an?: readonly string[];
     /** @internal Monotonic material UBO version. Renderables track their last seen value independently. */
     _uboVersion: number;
     /** @internal Monotonic CSM material-view generation. */
