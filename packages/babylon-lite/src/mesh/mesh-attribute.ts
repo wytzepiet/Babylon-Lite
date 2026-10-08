@@ -6,6 +6,7 @@
 import { BU } from "../engine/gpu-flags.js";
 import type { EngineContext } from "../engine/engine.js";
 import { bumpVisibilityEpoch } from "../engine/engine.js";
+import { retireGpuResources } from "../engine/gpu-resource-retirement.js";
 import type { Mesh } from "./mesh.js";
 
 /**
@@ -20,7 +21,11 @@ export function setMeshAttribute(engine: EngineContext, mesh: Mesh, name: string
     const attributes = (mesh._attributes ??= {});
     let buffer = attributes[name];
     if (!buffer || buffer.size < data.byteLength) {
-        buffer?.destroy();
+        // Recorded draws may still bind the old buffer until they are recorded again.
+        const old = buffer;
+        if (old) {
+            retireGpuResources(engine, () => old.destroy());
+        }
         buffer = attributes[name] = engine._device.createBuffer({
             size: Math.max(16, (data.byteLength + 3) & ~3),
             usage: BU.VERTEX | BU.COPY_DST,
