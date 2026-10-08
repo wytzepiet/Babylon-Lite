@@ -130,10 +130,33 @@ export async function buildPbrRenderables(scene: SceneContext, meshes: Mesh[], e
         hasAnyFlatNormal ||= !!(m as { _flatNormal?: boolean })._flatNormal;
         hasGammaAlbedo ||= !!mat._gammaAlbedo;
     }
+    // A mesh joining later is built alone by `rebuildSingle`, against the shader dependencies this build
+    // loaded. One needing a capability no mesh here had (a dependency left unloaded) widens the group
+    // instead: the whole group is built again with it.
     const group = scene._groups.get(meshes[0]!.material!._buildGroup)!;
-    if (!hasGammaAlbedo || !group.r) {
-        group._w = hasGammaAlbedo ? null : (mesh) => (mesh.material as PbrMaterialProps | null)?._gammaAlbedo;
-    }
+    group._w = (mesh) => {
+        const mat = mesh.material as PbrMaterialProps | null;
+        if (!mat) {
+            return false;
+        }
+        const lr = writeMeshLightSelection(mesh, scene.lights);
+        const affected = lr > 0 ? 1 : -lr;
+        return (
+            (!hasSomeSkeletons && !!mesh.skeleton) ||
+            (!hasSomeMorphs && !!mesh.morphTargets) ||
+            (!hasSomeThinInstances && !!mesh.thinInstances) ||
+            (!hasCullingTI && !!mesh.thinInstances?._gpuCullingEnabled) ||
+            (!hasAnyUvTransform && !!mat._hasUvTx) ||
+            (!hasAnyUv2 && !!mesh._gpu.uv2Buffer && !!(mat as { _uv2Mask?: number })._uv2Mask) ||
+            (!hasAnyVertexColor && !!mesh._gpu.colorBuffer) ||
+            (!hasAnyFlatNormal && !!(mesh as { _flatNormal?: boolean })._flatNormal) ||
+            (!hasGammaAlbedo && !!mat._gammaAlbedo) ||
+            (!hasAnyAffectedLight && affected > 0) ||
+            (!needsMultiLightPath && (affected > 1 || (affected > 0 && mesh.receiveShadows && hasSomeShadows))) ||
+            (!needsSingleLightPath && affected === 1 && !(mesh.receiveShadows && hasSomeShadows)) ||
+            (affected === 1 && !singleLightTypes.includes(getPackedSingleLightType(scene.lights, lr - 1)))
+        );
+    };
 
     // ── Dynamically import fragment creators based on scene capabilities ──
 

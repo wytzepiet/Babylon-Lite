@@ -884,6 +884,7 @@ export { setMat4Translation } from "./math/set-mat4-translation.js";
 export { createIdentityMat4 } from "./math/create-identity-mat4.js";
 export { createScalingMat4 } from "./math/create-scaling-mat4.js";
 export { composeMat4 } from "./math/compose-mat4.js";
+export { composeMat4IntoBuffer } from "./math/compose-mat4-into-buffer.js";
 export { invertMat4 } from "./math/invert-mat4.js";
 export { multiplyMat4 } from "./math/multiply-mat4.js";
 export { createLookAtMat4LH } from "./math/create-look-at-mat4-lh.js";
