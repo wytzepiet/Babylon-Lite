@@ -18,9 +18,11 @@ export function setShadowGeneratorBounds(sg: ShadowGenerator, min: readonly [num
         }
         return;
     }
-    if (bounds && bounds[0] === min[0] && bounds[1] === min[1] && bounds[2] === min[2] && bounds[3] === max[0] && bounds[4] === max[1] && bounds[5] === max[2]) {
+    const next = new Float32Array([min[0], min[1], min[2], max[0], max[1], max[2]]);
+    // Compared as stored: a box given in doubles that a float cannot hold would never match itself.
+    if (bounds && next.every((v, i) => v === bounds[i])) {
         return;
     }
-    config._bounds = new Float32Array([min[0], min[1], min[2], max[0], max[1], max[2]]);
+    config._bounds = next;
     config._boundsVersion = (config._boundsVersion ?? 0) + 1;
 }

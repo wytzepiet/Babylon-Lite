@@ -21,6 +21,7 @@ import { NODE_ESM_SHADOW_OUTPUT, NODE_NO_COLOR_OUTPUT } from "./node-flags.js";
 import { packMat4IntoF32 } from "../../math/pack-mat4-into-f32.js";
 import { createEmptyUniformBuffer } from "../../resource/empty-uniform-buffer.js";
 import { createUniformBuffer } from "../../resource/uniform-buffer.js";
+import { shadowDepthView } from "../../shadow/shadow-generator.js";
 
 interface NodePacket {
     readonly _mesh: Mesh;
@@ -223,7 +224,7 @@ function buildNodeMeshRenderablesImpl(
                 if (!sg) {
                     throw new Error(`NodeMaterial: material requires shadow generator #${si} but none was supplied to parseNodeMaterialFromSnippet({ shadowGenerators }).`);
                 }
-                entries.push({ binding: sb._texBinding, resource: sg._depthTexture.createView() });
+                entries.push({ binding: sb._texBinding, resource: shadowDepthView(sg) });
                 entries.push({ binding: sb._sampBinding, resource: sg._depthSampler });
                 entries.push({ binding: sb._uboBinding, resource: { buffer: sg._shadowUBO } });
             }

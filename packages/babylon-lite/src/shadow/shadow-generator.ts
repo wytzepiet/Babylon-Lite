@@ -100,3 +100,9 @@ export interface ShadowGenerator {
     /** @internal Replaces the innermost task hooks while preserving installed caster adapters. */
     _replaceShadowTaskHooks?(ensure: NonNullable<ShadowGenerator["_ensureShadowTaskState"]>, render: NonNullable<ShadowGenerator["_renderShadowMap"]>): void;
 }
+
+/** @internal The view a receiver samples. A CSM map is an array of cascades even when it holds one,
+ *  and a plain view of a single layer is 2D, which an array binding refuses. */
+export function shadowDepthView(sg: ShadowGenerator): GPUTextureView {
+    return sg._depthTexture.createView(sg._shadowType === "csm" ? { dimension: "2d-array" } : undefined);
+}

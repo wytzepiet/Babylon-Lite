@@ -4,7 +4,6 @@
  * byte-identical apart from the tiny feature gate in `csm-shadow-task-hooks.ts`.
  */
 
-import { _cameraChangeKey } from "../camera/camera.js";
 import type { DirectionalLight } from "../light/directional-light.js";
 import type { EngineContext } from "../engine/engine.js";
 import type { Material, MaterialView } from "../material/material.js";
@@ -25,7 +24,7 @@ import {
     _dropTaskMeshes,
     _reconcileCsmCasters,
     _writeCsmUbo,
-    csmCameraAspect,
+    csmFitKey,
     csmWorldBiasClipOffset,
     type CsmCascades,
     type CsmConfig,
@@ -381,8 +380,7 @@ export function renderCsmShadowMapCached(engine: EngineContext, sg: ShadowGenera
     if (!camera) {
         return 0;
     }
-    const camVersion = _cameraChangeKey(camera);
-    const camAspect = csmCameraAspect(cached._scene, camera);
+    const [camVersion, camAspect] = csmFitKey(cached._scene, camera, cfg);
     const cameraChanged = camVersion !== cached._lastCamVersion || camAspect !== cached._lastCamAspect;
     const light = sg._light as DirectionalLight;
     // A caster's DEPTH can change without its transform changing: a procedural mesh re-uploads its

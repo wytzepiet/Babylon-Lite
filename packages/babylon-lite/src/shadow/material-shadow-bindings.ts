@@ -1,5 +1,5 @@
 import type { EngineContext } from "../engine/engine.js";
-import type { ShadowGenerator } from "./shadow-generator.js";
+import { shadowDepthView, type ShadowGenerator } from "./shadow-generator.js";
 
 /** @internal Scene-local shadow bindings, keyed by a material variant's group-2 layout. */
 export type MaterialShadowBindings = (layout: GPUBindGroupLayout) => GPUBindGroup;
@@ -13,7 +13,7 @@ export function createMaterialShadowBindings(engine: EngineContext, lights: read
             const entries: GPUBindGroupEntry[] = [];
             for (const { gen } of lights) {
                 entries.push(
-                    { binding: entries.length, resource: gen._depthTexture.createView() },
+                    { binding: entries.length, resource: shadowDepthView(gen) },
                     { binding: entries.length + 1, resource: gen._depthSampler },
                     { binding: entries.length + 2, resource: { buffer: gen._shadowUBO } }
                 );

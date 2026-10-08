@@ -54,6 +54,7 @@ import { _writeMaterialData } from "./pbr-renderable.js";
 import type { PbrGeometryMaterialView } from "./pbr-geometry-view.js";
 import { composePbrGeometryShader, _ensurePbrGeometryExt } from "./pbr-geometry-output-shader.js";
 import { _setActivePbrGeometryAttachments } from "./pbr-geometry-view.js";
+import { shadowDepthView } from "../../shadow/shadow-generator.js";
 
 /** Lazily-created singleton {@link MeshGroupBuilder} that geometry views point at
  *  via their overridden `_buildGroup`. The async builder body is unreachable —
@@ -252,7 +253,7 @@ export function buildPbrGeometryRenderable(scene: SceneContext, mesh: Mesh, view
         let b = 0;
         for (const sl of ctx._shadowLights) {
             const sg = sl.gen;
-            entries.push({ binding: b++, resource: sg._depthTexture.createView() });
+            entries.push({ binding: b++, resource: shadowDepthView(sg) });
             entries.push({ binding: b++, resource: sg._depthSampler });
             entries.push({ binding: b++, resource: { buffer: sg._shadowUBO } });
         }

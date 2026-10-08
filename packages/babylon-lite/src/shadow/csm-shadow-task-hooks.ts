@@ -54,6 +54,10 @@ export interface CsmConfig {
     _mapSize: number;
     /** @internal */
     _forceRefreshEveryFrame: boolean;
+    /** @internal A box (minX, minY, minZ, maxX, maxY, maxZ) every cascade covers in place of the camera's view (`setShadowGeneratorBounds`). */
+    _bounds?: Float32Array | null;
+    /** @internal */
+    _boundsVersion?: number;
 }
 
 export interface CsmTaskState extends ShadowTaskInternalState {
@@ -481,10 +485,9 @@ export function renderCsmShadowMap(engine: EngineContext, sg: ShadowGenerator, s
     }
     const casterVersion = casterVersionSum(casterMeshes);
     const lightVersion = sg._light._lightVersion;
-    const camVersion = _cameraChangeKey(camera);
     // Effective aspect is part of the key: a viewport or surface resize changes the camera
     // frustum the cascades are fit to while every version above stays put.
-    const camAspect = csmCameraAspect(state._scene, camera);
+    const [camVersion, camAspect] = csmFitKey(state._scene, camera, cfg);
     if (
         !cfg._forceRefreshEveryFrame &&
         casterVersion === state._lastCasterVersion &&
@@ -637,6 +640,12 @@ export function csmCameraAspect(scene: SceneContext, camera: Camera): number {
     return getEffectiveAspectRatio(camera, rt._width, rt._height);
 }
 
+/** @internal What the cascades are fit to, as a key and an aspect that change when it does: the
+ *  caller's box while one is set, which a camera move leaves standing, else the camera's view. */
+export function csmFitKey(scene: SceneContext, camera: Camera, cfg: CsmConfig): [number, number] {
+    return cfg._bounds ? [-2 - (cfg._boundsVersion ?? 0), 0] : [_cameraChangeKey(camera), csmCameraAspect(scene, camera)];
+}
+
 export function _computeCsmCascades(
     scene: SceneContext,
     camera: Camera,
@@ -718,6 +727,15 @@ export function _computeCsmCascades(
             nearCorner[2] = nearCorner[2]! + rz * prevSplit;
         }
         prevSplit = split;
+        const box = cfg._bounds;
+        if (box) {
+            for (let k = 0; k < 8; k++) {
+                const corner = corners[k]!;
+                corner[0] = box[k & 1 ? 3 : 0]!;
+                corner[1] = box[k & 2 ? 4 : 1]!;
+                corner[2] = box[k & 4 ? 5 : 2]!;
+            }
+        }
 
         // Centroid.
         let cx = 0,
