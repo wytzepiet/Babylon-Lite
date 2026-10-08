@@ -101,6 +101,8 @@ export function computeDirectionalLightMatrix(
     let maxX = -Infinity;
     let minY = Infinity;
     let maxY = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
     const boxes = bounds ? [{ worldMatrix: IDENTITY, boundMin: [bounds[0]!, bounds[1]!, bounds[2]!] as const, boundMax: [bounds[3]!, bounds[4]!, bounds[5]!] as const }] : casterMeshes;
     for (const mesh of boxes) {
         const world = mesh.worldMatrix;
@@ -115,6 +117,9 @@ export function computeDirectionalLightMatrix(
             const worldZ = world[2]! * localX + world[6]! * localY + world[10]! * localZ + world[14]! - offZ;
             const viewX = view[0]! * worldX + view[4]! * worldY + view[8]! * worldZ + view[12]!;
             const viewY = view[1]! * worldX + view[5]! * worldY + view[9]! * worldZ + view[13]!;
+            const viewZ = view[2]! * worldX + view[6]! * worldY + view[10]! * worldZ + view[14]!;
+            minZ = Math.min(minZ, viewZ);
+            maxZ = Math.max(maxZ, viewZ);
             minX = Math.min(minX, viewX);
             maxX = Math.max(maxX, viewX);
             minY = Math.min(minY, viewY);
@@ -127,12 +132,20 @@ export function computeDirectionalLightMatrix(
         minY = -1;
         maxY = 1;
     }
-    const padX = (maxX - minX) * 0.1;
-    const padY = (maxY - minY) * 0.1;
-    minX -= padX;
-    maxX += padX;
-    minY -= padY;
-    maxY += padY;
+    if (bounds) {
+        // An explicit box is the whole frustum: its sides exactly, and its depth along the beam
+        // (so a bias means the same at any light position or box size).
+        const padZ = (maxZ - minZ) * 0.01 + 1e-3;
+        orthoMinZ = minZ - padZ;
+        orthoMaxZ = maxZ + padZ;
+    } else {
+        const padX = (maxX - minX) * 0.1;
+        const padY = (maxY - minY) * 0.1;
+        minX -= padX;
+        maxX += padX;
+        minY -= padY;
+        maxY += padY;
+    }
 
     const projection = new F32(16);
     projection[0] = 2 / (maxX - minX);
