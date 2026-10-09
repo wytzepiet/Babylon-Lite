@@ -234,6 +234,14 @@ export function createPbrComposer(deps: PbrComposerDeps): PbrComposeFn {
         }
         if (hasTI && _createThinInstanceFragment) {
             frags.push(_createThinInstanceFragment(hasMesh(MSH_HAS_INSTANCE_COLOR)));
+            // A plugin that moves the world (VW) moves the instance's: it composes after thin-instance sets
+            // finalWorld, or that write clobbers it (ids sort "plugin-…" before "thin-instance").
+            for (let i = 0; i < frags.length; i++) {
+                const f = frags[i]!;
+                if (f._id.startsWith("plugin") && f._vertexSlots?.VW) {
+                    frags[i] = { ...f, _dependencies: [...(f._dependencies ?? []), "thin-instance"] };
+                }
+            }
         }
 
         const composed = frags.reduce((shader, fragment) => fragment._pc?.(shader) ?? shader, composeShader(template, frags, vbStrides));
