@@ -654,7 +654,9 @@ export function _computeCsmCascades(
     casterMeshes: readonly Mesh[],
     scratch: CsmCascadeScratch
 ): CsmCascades {
-    const near = camera.nearPlane;
+    // An orthographic camera may clip behind itself (a negative near plane); the
+    // splits are spaced from the nearest positive depth, as a logarithm wants.
+    const near = Math.max(camera.nearPlane, 1e-3);
     const far = camera.farPlane;
     const cameraRange = far - near;
     const shadowMaxZ = cfg._shadowMaxZ ?? far;
