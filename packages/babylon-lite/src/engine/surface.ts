@@ -2,6 +2,7 @@ import type { EngineContext, RenderCanvas, RenderingContext } from "./engine.js"
 import type { RenderTarget } from "./render-target.js";
 import { _createDirectRenderTarget } from "./render-target.js";
 import { _ENGINE_TAG } from "./version.js";
+import { TU } from "./gpu-flags.js";
 
 /** @internal Type guard: true for a DOM canvas (has layout + attributes). */
 export function isDomCanvas(canvas: RenderCanvas): canvas is HTMLCanvasElement {
@@ -148,6 +149,10 @@ export interface SurfaceOptions {
     /** Clamps the effective device pixel ratio used for the swapchain backing store.
      *  Defaults to unclamped (full devicePixelRatio). */
     maxDevicePixelRatio?: number;
+    /** Make the swapchain a copy source from the start, for passes that read back what the
+     *  frame drew (a blur or refraction over the scene). Off by default: a copyable swapchain
+     *  can cost some drivers their lossless framebuffer compression. */
+    copySource?: boolean;
 }
 
 /**
@@ -207,7 +212,8 @@ export function _buildSurface(engine: EngineContext, canvas: RenderCanvas, optio
     // reconfigures the primary surface's swapchain with COPY_SRC on first use (see
     // `engine/screenshot-readback.ts`), keeping the public API unchanged while costing
     // non-capturing surfaces nothing.
-    context.configure({ device: engine._device, format: configureFormat, alphaMode, viewFormats: [renderFormat] });
+    const copySource = !!options?.copySource;
+    context.configure({ device: engine._device, format: configureFormat, alphaMode, usage: copySource ? TU.RENDER_ATTACHMENT | TU.COPY_SRC : TU.RENDER_ATTACHMENT, viewFormats: [renderFormat] });
     const msaaSamples: 1 | 4 = options?.msaaSamples === 1 ? 1 : 4;
     // Surface-owned swapchain target — a color-only, single-sample RT that wraps the
     // canvas texture. `_eager` so `buildRenderTarget` skips it; the surface refreshes
@@ -226,6 +232,7 @@ export function _buildSurface(engine: EngineContext, canvas: RenderCanvas, optio
         _configureFormat: configureFormat,
         _alphaMode: alphaMode,
         _renderingContexts: [],
+        _swapchainCopySrc: copySource,
     };
 }
 
