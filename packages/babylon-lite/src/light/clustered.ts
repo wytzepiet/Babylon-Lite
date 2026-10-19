@@ -13,6 +13,9 @@ const PBR_HAS_CLUSTERED_LIGHTS = 1 << 13;
 const MAX_DATA_TEXTURE_WIDTH = 8192;
 const CLUSTER_BATCH_SIZE = 32;
 const EMPTY_SLICE_FIRST = 0xffffffff;
+/** The least view depth slices are cut by: the shader's own floor (`clustered-light-wgsl.ts`),
+ *  so a camera whose near plane is at or behind the eye still slices. */
+const MIN_SLICE_DEPTH = 0.0001;
 
 /**
  * A single point light stored inside a {@link ClusteredLightContainer}. Plain
@@ -185,7 +188,8 @@ export function markClusteredLightContainerDirty(container: ClusteredLightContai
 
 /**
  * Register a clustered light container on a scene, building its GPU state and
- * wiring it into the PBR materials already present in the scene.
+ * wiring it into the PBR materials in the scene: those present now, and those
+ * of meshes added or given a material later.
  *
  * @param scene - The scene to attach the container to.
  * @param container - The clustered light container to register.
@@ -197,13 +201,28 @@ export function addClusteredLightContainer(scene: SceneContext, container: Clust
     const state = buildClusteredLightGpuState(ctx.surface.engine, ctx, container);
     ctx._clusteredLightUpdater = (camera, targetWidth, targetHeight) => state.refresh(camera, targetWidth, targetHeight);
     ctx._disposables.push(() => state.dispose());
-    for (const mesh of ctx.meshes) {
-        if (mesh.material) {
-            const mat = mesh.material as { _clusteredLightState?: ClusteredLightGpuState; _renderFeatures?: unknown };
+    const light = (material: unknown): void => {
+        const mat = material as { _clusteredLightState?: ClusteredLightGpuState; _renderFeatures?: unknown } | null | undefined;
+        if (mat && mat._clusteredLightState !== state) {
             mat._clusteredLightState = state;
             mat._renderFeatures = undefined;
         }
+    };
+    for (const mesh of ctx.meshes) {
+        light(mesh.material);
     }
+    // Called as a mesh is added or its material swapped, before its renderable is (re)built.
+    const previous = ctx._meshMaterialChange;
+    const changed: NonNullable<SceneContext["_meshMaterialChange"]> = (mesh, material) => {
+        previous?.(mesh, material);
+        light(material);
+    };
+    ctx._meshMaterialChange = changed;
+    ctx._disposables.push(() => {
+        if (ctx._meshMaterialChange === changed) {
+            ctx._meshMaterialChange = previous;
+        }
+    });
 }
 
 const clusteredPointPbrExt: PbrExt = {
@@ -400,9 +419,12 @@ export function buildClusteredLightGpuState(engine: EngineContext, scene: SceneC
                 const proj = getProjectionMatrix(activeCamera, aspect);
                 const nearZ = activeCamera.nearPlane;
                 const farZ = activeCamera.farPlane;
-                const logFarNear = Math.log(farZ / nearZ);
+                // Sliced from the near plane, or the shader's floor where the near plane is at or
+                // behind the eye, as an orthographic camera's may be.
+                const sliceNear = Math.max(nearZ, MIN_SLICE_DEPTH);
+                const logFarNear = Math.log(farZ / sliceNear);
                 const sliceScale = zSlices / logFarNear;
-                const sliceBias = -(zSlices * Math.log(nearZ)) / logFarNear;
+                const sliceBias = -(zSlices * Math.log(sliceNear)) / logFarNear;
                 for (const light of pointLights) {
                     if (light.range > 0 && light.intensity > 0) {
                         activeLights.push({ light, depth: viewZ(light.position, view) });
@@ -420,7 +442,7 @@ export function buildClusteredLightGpuState(engine: EngineContext, scene: SceneC
                 }
                 for (let i = 0; i < activeLights.length; i++) {
                     const { light, depth } = activeLights[i]!;
-                    addLightToClusters(sliceData, maskData, light, depth, i, view, proj, tileCountX, tileCountY, zSlices, sliceScale, sliceBias, activeBatchCount);
+                    addLightToClusters(sliceData, maskData, light, depth, i, view, proj, tileCountX, tileCountY, zSlices, nearZ, farZ, sliceScale, sliceBias, activeBatchCount);
                 }
                 paramsU[0] = tileCountX;
                 paramsU[1] = tileCountY;
@@ -524,6 +546,8 @@ function addLightToClusters(
     tileCountX: number,
     tileCountY: number,
     zSlices: number,
+    nearZ: number,
+    farZ: number,
     sliceScale: number,
     sliceBias: number,
     batchCount: number
@@ -532,19 +556,19 @@ function addLightToClusters(
     const vy = view[1]! * light.position[0] + view[5]! * light.position[1] + view[9]! * light.position[2] + view[13]!;
     const vz = viewDepth;
     const range = Math.max(0, light.range);
-    const firstSlice = getSliceIndex(vz - range, sliceScale, sliceBias);
-    const lastSlice = getSliceIndex(vz + range, sliceScale, sliceBias);
-    if (lastSlice < 0 || firstSlice >= zSlices) {
+    // Culled only where the whole sphere lies outside the view volume; within it, binned into the
+    // slices the shader reads its fragments from.
+    if (vz + range < nearZ || vz - range > farZ) {
         return;
     }
+    const z0 = getSliceIndex(vz - range, sliceScale, sliceBias, zSlices);
+    const z1 = getSliceIndex(vz + range, sliceScale, sliceBias, zSlices);
 
     const bounds = projectedSphereBounds(vx, vy, vz, range, proj, tileCountX, tileCountY);
     const minX = bounds[0];
     const maxX = bounds[1];
     const minY = bounds[2];
     const maxY = bounds[3];
-    const z0 = clampInt(firstSlice, 0, zSlices - 1);
-    const z1 = clampInt(lastSlice, 0, zSlices - 1);
     for (let z = z0; z <= z1; z++) {
         const off = z * 4;
         sliceData[off] = Math.min(sliceData[off]!, lightIndex);
@@ -564,8 +588,10 @@ function viewZ(position: readonly [number, number, number], view: ArrayLike<numb
     return view[2]! * position[0] + view[6]! * position[1] + view[10]! * position[2] + view[14]!;
 }
 
-function getSliceIndex(depth: number, sliceScale: number, sliceBias: number): number {
-    return depth > 0 ? Math.floor(Math.log(depth) * sliceScale + sliceBias) : -1;
+/** The slice a view depth falls in, as the shader finds it: floored at `MIN_SLICE_DEPTH` and
+ *  clamped to the slices there are. */
+function getSliceIndex(depth: number, sliceScale: number, sliceBias: number, zSlices: number): number {
+    return clampInt(Math.floor(Math.log(Math.max(depth, MIN_SLICE_DEPTH)) * sliceScale + sliceBias), 0, zSlices - 1);
 }
 
 function clampInt(v: number, min: number, max: number): number {

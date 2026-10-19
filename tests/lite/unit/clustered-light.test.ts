@@ -376,6 +376,34 @@ describe("clustered light uploads", () => {
  *  a sphere of a given radius covers the same screen box wherever it sits along the view
  *  axis. That is what these assert, through the public build path rather than the internal
  *  helper. */
+describe("clustered lights for meshes added later", () => {
+    it("lights the material of a mesh added or re-materialed after the container", () => {
+        const { engine, scene } = setup();
+        const container = createClusteredLightContainer();
+        createClusteredPointLight(container, { position: [0, 0, 5], diffuse: [1, 1, 1], range: 4, intensity: 2 });
+        const early = { _renderFeatures: 1 } as { _clusteredLightState?: unknown; _renderFeatures?: unknown };
+        const sceneContext = { ...scene, surface: { engine }, meshes: [{ material: early }], _disposables: [] } as unknown as SceneContext;
+        const seen: unknown[] = [];
+        sceneContext._meshMaterialChange = (_mesh, material) => void seen.push(material);
+
+        addClusteredLightContainer(sceneContext, container);
+        const late = { _renderFeatures: 1 } as { _clusteredLightState?: unknown; _renderFeatures?: unknown };
+        sceneContext._meshMaterialChange!({} as never, late as never);
+
+        expect(late._clusteredLightState).toBe(early._clusteredLightState);
+        expect(late._clusteredLightState).toBeDefined();
+        expect(late._renderFeatures, "features must be recomputed with the lights").toBeUndefined();
+        expect(seen, "the hook it replaced still runs").toEqual([late]);
+
+        for (const dispose of (sceneContext as unknown as { _disposables: (() => void)[] })._disposables) {
+            dispose();
+        }
+        const after = {} as { _clusteredLightState?: unknown };
+        sceneContext._meshMaterialChange!({} as never, after as never);
+        expect(after._clusteredLightState, "a disposed container lights nothing").toBeUndefined();
+    });
+});
+
 describe("clustered light tile assignment under orthographic projection", () => {
     /** The tile-mask upload for one build. The mask is indexed by screen tile (and light
      *  batch), unlike the slice and light-data textures which carry z-ranges and world
@@ -426,6 +454,31 @@ describe("clustered light tile assignment under orthographic projection", () => 
             return set.reduce((a, b) => a + b, 0) / set.length;
         };
         expect(centreTileX({ left: -2, right: 14 })).toBeLessThan(centreTileX({ left: -8, right: 8 }));
+    });
+
+    it("bins lights when the near plane lies behind the eye", () => {
+        // A flat view may set its near plane behind the camera, to see what stands above it.
+        // Slicing by the log of a near plane at or behind the eye must not lose the lights,
+        // whether they lie past the eye or before it, between it and the near plane.
+        const count = (depth: number) => {
+            const { engine, scene, activeCamera, writeTexture } = setup();
+            enableOrthographicCamera(activeCamera, { halfHeight: 8 });
+            activeCamera.nearPlane = -1000;
+            const container = createClusteredLightContainer();
+            createClusteredPointLight(container, { position: [0, 0, depth], diffuse: [1, 1, 1], range: 3, intensity: 2 });
+            buildClusteredLightGpuState(engine, scene, container);
+            // Each slice's first and last light: the first four-component upload, before the lights'.
+            const slices = writeTexture.mock.calls.find((c) => (c[2] as GPUTexelCopyBufferLayout).bytesPerRow === (c[3] as GPUExtent3DDict).width * 16);
+            const data = new Uint32Array(slices![1] as ArrayBuffer);
+            let sliced = 0;
+            for (let i = 0; i < 16; i++) {
+                sliced += data[i * 4]! <= data[i * 4 + 1]! ? 1 : 0;
+            }
+            return sliced;
+        };
+        expect(count(20), "a light past the eye").toBeGreaterThan(0);
+        expect(count(-20), "a light before the eye, past the near plane").toBeGreaterThan(0);
+        expect(count(-2000), "a light wholly behind the near plane is culled").toBe(0);
     });
 
     it("re-bins after a bound changes on an already-built state", () => {
