@@ -112,7 +112,8 @@ describe("clustered light uploads", () => {
         const extents = writeTexture.mock.calls.map((call) => call[3] as GPUExtent3DDict);
         expect(extents).toContainEqual({ width: 2, height: 1 });
         expect(extents).toContainEqual({ width: 16, height: 1 });
-        expect(extents).toContainEqual({ width: 4096, height: 1 });
+        // Each tile's mask, and each tile's word of batches.
+        expect(extents).toContainEqual({ width: 8192, height: 1 });
     });
 
     it("uploads only light data when color changes without moving cluster topology", () => {
