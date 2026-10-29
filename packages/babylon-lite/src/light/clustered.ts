@@ -313,7 +313,12 @@ export function buildClusteredLightGpuState(engine: EngineContext, scene: SceneC
     const lightStride = spotSupport?._stride ?? 2;
     const batchCount = Math.max(1, Math.ceil(totalLights / CLUSTER_BATCH_SIZE));
     const lightTexels = Math.max(1, totalLights * lightStride);
-    const maskTexels = Math.max(1, tileCountX * tileCountY * batchCount);
+    if (batchCount > CLUSTER_BATCH_SIZE) {
+        throw new Error(`ClusteredLightContainer: at most ${CLUSTER_BATCH_SIZE * CLUSTER_BATCH_SIZE} lights.`);
+    }
+    // Each tile's run: a word saying which of its batches hold any light, then a mask a batch, so a
+    // fragment reads only the batches it is touched by (most tiles touch a batch or two of many).
+    const maskTexels = Math.max(1, tileCountX * tileCountY * (batchCount + 1));
     const dataTextureWidth = Math.min(maxDataTextureWidth, Math.max(lightTexels, zSlices, maskTexels));
     const lightData = new F32(textureElementCount(lightTexels, 4, dataTextureWidth));
     const sliceData = new U32(textureElementCount(zSlices, 4, dataTextureWidth));
@@ -433,7 +438,7 @@ export function buildClusteredLightGpuState(engine: EngineContext, scene: SceneC
                 spotSupport?._collect(activeLights, spotLights, view);
                 activeLights.sort((a, b) => a.depth - b.depth);
                 const activeBatchCount = Math.max(1, Math.ceil(activeLights.length / CLUSTER_BATCH_SIZE));
-                const activeMaskTexels = tileCountX * tileCountY * activeBatchCount;
+                const activeMaskTexels = tileCountX * tileCountY * (activeBatchCount + 1);
                 maskData.fill(0, 0, activeMaskTexels);
                 for (let i = 0; i < zSlices; i++) {
                     const off = i * 4;
@@ -578,8 +583,9 @@ function addLightToClusters(
     const bit = 1 << (lightIndex % CLUSTER_BATCH_SIZE);
     for (let y = minY; y <= maxY; y++) {
         for (let x = minX; x <= maxX; x++) {
-            const maskIndex = (x * tileCountY + y) * batchCount + batch;
-            maskData[maskIndex] = maskData[maskIndex]! | bit;
+            const run = (x * tileCountY + y) * (batchCount + 1);
+            maskData[run] = maskData[run]! | (1 << batch);
+            maskData[run + 1 + batch] = maskData[run + 1 + batch]! | bit;
         }
     }
 }

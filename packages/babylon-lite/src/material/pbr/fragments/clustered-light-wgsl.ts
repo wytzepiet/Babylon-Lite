@@ -46,9 +46,15 @@ let firstLight=slice.x;
 let lastLight=min(slice.y,clusteredLightParams.lightCount-1u);
 let firstBatch=firstLight/32u;
 let lastBatch=lastLight/32u;
-for(var batch=firstBatch;batch<=lastBatch;batch++){
+let tileRun=(tx*clusteredLightParams.tileCountY+ty)*(clusteredLightParams.batchCount+1u);
+var batches=textureLoad(clusteredIndices,clusteredTexel(tileRun),0).x;
+batches=extractBits(batches,firstBatch,lastBatch-firstBatch+1u);
+while(batches!=0u){
+let next=firstTrailingBit(batches);
+batches^=1u<<next;
+let batch=firstBatch+next;
 let batchOffset=batch*32u;
-let tileMaskIndex=(tx*clusteredLightParams.tileCountY+ty)*clusteredLightParams.batchCount+batch;
+let tileMaskIndex=tileRun+1u+batch;
 var mask=textureLoad(clusteredIndices,clusteredTexel(tileMaskIndex),0).x;
 let maskOffset=max(firstLight,batchOffset)-batchOffset;
 let maskWidth=min(lastLight-batchOffset+1u,32u);
