@@ -703,7 +703,9 @@ export function _computeCsmCascades(
     const invViewProj = scratch._invViewProj;
     invertMat4ToRefOrIdentity(vp as never, invViewProj as never);
 
-    const hasCasterBounds = _castersWorldAabbInto(casterMeshes, scratch);
+    // A box the caller set says where the casters are: their own bounds, every
+    // thin instance's eight corners each time one moves, are not walked.
+    const hasCasterBounds = !cfg._bounds && _castersWorldAabbInto(casterMeshes, scratch);
 
     let prevSplit = 0;
     for (let c = 0; c < n; c++) {
