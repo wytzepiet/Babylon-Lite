@@ -20,6 +20,28 @@ function update(gate: ReturnType<typeof createCsmRefitGate<MutableCaster>>, nowM
 }
 
 describe("CSM refit gate", () => {
+    it("keeps casters the caller says stand still in the static set, and the rest dynamic however quiet", () => {
+        const house = { worldMatrixVersion: 1 };
+        const car = { worldMatrixVersion: 1 };
+        const onPromote = vi.fn();
+        const onDemote = vi.fn();
+        const gate = createCsmRefitGate<MutableCaster>({ refitAngle: 0.05, refitMaxIntervalMs: 0, demoteQuietFrames: 2, still: (c) => c === house });
+
+        gate.syncCasters([house, car]);
+        expect(gate.update(0, -1, 0, 0, false, false, onPromote, onDemote).refit).toBe(true);
+        expect(gate.isDynamic(house)).toBe(false);
+        expect(gate.isDynamic(car)).toBe(true);
+        for (let t = 1; t < 10; t++) gate.update(0, -1, 0, t, false, false, onPromote, onDemote);
+        expect(gate.isDynamic(car)).toBe(true);
+
+        // A still caster that changes stays static, and the cache is re-rendered with it.
+        house.worldMatrixVersion++;
+        expect(gate.update(0, -1, 0, 10, false, false, onPromote, onDemote).refit).toBe(true);
+        expect(gate.isDynamic(house)).toBe(false);
+        expect(onPromote).not.toHaveBeenCalled();
+        expect(onDemote).toHaveBeenCalledOnce();
+    });
+
     it("does not refit when the same caster membership is re-supplied in a new array", () => {
         const caster = { worldMatrixVersion: 1 };
         const gate = createCsmRefitGate<MutableCaster>({ refitAngle: 0.05, refitMaxIntervalMs: 0, demoteQuietFrames: 100 });

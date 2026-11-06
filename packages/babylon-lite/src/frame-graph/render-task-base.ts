@@ -106,6 +106,10 @@ export interface RenderTaskConfig {
     /** Set false for an explicit render list that never auto-mirrors the scene's renderables,
      *  even while the task list is empty. Undefined preserves the default auto-mirror behavior. */
     autoMirror?: boolean;
+    /** Which of the scene's meshes an auto-mirroring task draws: those this says yes to. Asked as the
+     *  task mirrors the scene again, on a mesh added or removed, so its answer for a mesh must not
+     *  change while the mesh is in the scene. Undefined draws them all. */
+    keep?: (mesh: Mesh) => boolean;
     /** @internal Skip clustered-light preparation for passes that never run forward lighting. */
     _skipClusteredLights?: boolean;
 }
@@ -281,7 +285,7 @@ export function _createAutomaticRenderTask(config: RenderTaskConfig, engine: Eng
             if (task._recordExplicit) {
                 task._recordExplicit(task, true);
             } else {
-                _buildBindings(task, config.autoMirror !== false ? scene._renderables.slice() : task._renderables, true);
+                _buildBindings(task, config.autoMirror !== false ? mirrored(task) : task._renderables, true);
             }
         },
         execute(): number {
@@ -317,6 +321,13 @@ export function _createAutomaticRenderTask(config: RenderTaskConfig, engine: Eng
         },
     };
     return task;
+}
+
+/** The scene's renderables an auto-mirroring task draws: those its `keep` says yes to. */
+function mirrored(task: RenderTaskBase): Renderable[] {
+    const keep = task._config.keep;
+    const all = task.scene._renderables;
+    return keep ? all.filter((r) => keep(r.mesh as Mesh)) : all.slice();
 }
 
 /** Remove a mesh from this task's renderable + binding lists. Idempotent. */
@@ -469,7 +480,7 @@ function prepareRenderTaskPass(task: RenderTaskBase, eng: EngineContext, targetS
     const sc = task.scene as SceneContext;
     // Auto-resync when the source scene mutates.
     if (task._config.autoMirror !== false && task._lastVersion !== sc._renderableVersion) {
-        _buildBindings(task, sc._renderables.slice());
+        _buildBindings(task, mirrored(task));
     }
 
     // Pre-pass work — runs before beginRenderPass. Updates the task-owned scene

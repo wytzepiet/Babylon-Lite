@@ -769,7 +769,8 @@ export { createPcfSpotlightShadowGenerator } from "./shadow/pcf-spotlight-shadow
 export { createPcfDirectionalShadowGenerator } from "./shadow/pcf-directional-shadow-generator.js";
 export { setShadowGeneratorBounds } from "./shadow/shadow-bounds.js";
 export { createCsmDirectionalShadowGenerator, getCsmReceiverTexture, onCsmReceiverUpdate } from "./shadow/csm-directional-shadow-generator.js";
-export { enableCsmStaticCache } from "./shadow/enable-csm-static-cache.js";
+export { enableCsmStaticCache, setShadowStaticOnly } from "./shadow/enable-csm-static-cache.js";
+export { getCsmStaticTexture } from "./shadow/csm-shadow-cache.js";
 export { createCsmRefitGate } from "./shadow/csm-refit-gate.js";
 export { enableMorphTargetShadows } from "./shadow/enable-morph-target-shadows.js";
 export { enableSkeletonShadows } from "./shadow/enable-skeleton-shadows.js";

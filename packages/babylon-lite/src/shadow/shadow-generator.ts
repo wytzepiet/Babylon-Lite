@@ -36,6 +36,9 @@ export interface ShadowGeneratorEnabledState {
 
 /** Runtime state for a light's shadow generator: shadow technique, map textures, light matrix, and per-frame task hooks. */
 export interface ShadowGenerator {
+    /** @internal While true, a static-cache CSM map holds its static casters alone: the cache is
+     *  copied in and no dynamic caster is drawn over it (`setShadowStaticOnly`). */
+    _staticOnly?: boolean;
     /** @internal Shadow technique: 'esm' (exponential, default), 'pcf' (percentage closer filtering), or 'csm' (cascaded). */
     _shadowType: "esm" | "pcf" | "csm";
     /** @internal The light that owns this shadow generator. */
@@ -76,6 +79,8 @@ export interface ShadowGenerator {
         _refitMaxIntervalMs: number;
         /** @internal Static cascades re-rendered per frame after a drift-only refit; 0 = all in one frame. */
         _staticCascadesPerFrame?: number;
+        /** @internal Which casters stand still, if the application says (`CsmStaticCacheOptions.still`). */
+        _still?: (mesh: import("../mesh/mesh.js").Mesh) => boolean;
         /** @internal */
         _loaded?: boolean;
     };

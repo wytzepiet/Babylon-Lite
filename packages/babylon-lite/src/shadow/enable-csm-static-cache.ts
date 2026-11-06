@@ -1,5 +1,6 @@
 import type { EngineContext } from "../engine/engine.js";
 import type { ShadowGenerator } from "./shadow-generator.js";
+import type { Mesh } from "../mesh/mesh.js";
 
 /** Options for {@link enableCsmStaticCache}. */
 export interface CsmStaticCacheOptions {
@@ -12,6 +13,11 @@ export interface CsmStaticCacheOptions {
      *  of one long frame. Refits caused by the camera, the content or the caster membership still
      *  re-render every cascade in their own frame. 0 or omitted keeps the single-frame re-render. */
     staticCascadesPerFrame?: number;
+    /** Which casters stand still, if the application knows: those it says yes to are drawn into the
+     *  cache from their first refit and stay there, re-rendered where they now are when they change; the
+     *  rest are drawn over it every frame, however long they stand. Omitted, the cache learns it: every
+     *  caster starts over the cache and is moved into it once it has stood still a while. */
+    still?: (mesh: Mesh) => boolean;
 }
 
 let enabling: WeakMap<ShadowGenerator, Promise<void>> | null = null;
@@ -51,7 +57,7 @@ export function enableCsmStaticCache(engine: EngineContext, sg: ShadowGenerator,
         format: "depth32float",
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
-    sg._csmCache = { _refitAngle: options.refitAngle, _refitMaxIntervalMs: options.refitMaxIntervalMs ?? 0, _staticCascadesPerFrame: staticCascadesPerFrame };
+    sg._csmCache = { _refitAngle: options.refitAngle, _refitMaxIntervalMs: options.refitMaxIntervalMs ?? 0, _staticCascadesPerFrame: staticCascadesPerFrame, _still: options.still };
     oldTexture.destroy();
     const promise = import("./csm-shadow-cache.js").then((module) => {
         sg._csmCache!._loaded = true;
@@ -76,4 +82,16 @@ export function enableCsmStaticCache(engine: EngineContext, sg: ShadowGenerator,
         () => enabling?.delete(sg)
     );
     return promise;
+}
+
+/**
+ * Hold a static-cache CSM map to its static casters alone, or let it have its dynamic ones again.
+ *
+ * While on, each frame copies the static cache into the map and draws no dynamic caster over it, so a
+ * pass rendered then is shadowed by what stands still and by nothing that moves; the first frame after
+ * draws the dynamic casters over the cache again, whether or not they moved. A generator without the
+ * static cache ignores it.
+ */
+export function setShadowStaticOnly(sg: ShadowGenerator, on: boolean): void {
+    sg._staticOnly = on;
 }

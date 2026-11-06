@@ -31,6 +31,8 @@ import {
     type CsmTaskState,
 } from "./csm-shadow-task-hooks.js";
 import type { ShadowGenerator, ShadowTaskInternalState } from "./shadow-generator.js";
+import type { Texture2D } from "../texture/texture-2d.js";
+import { acquireTexture } from "../resource/texture-acquire.js";
 
 interface CsmCachedTaskState extends CsmTaskState {
     _staticTasks: RenderTask[];
@@ -47,6 +49,11 @@ interface CsmCachedTaskState extends CsmTaskState {
     /** Scene renderable version the cached static layer was last RENDERED at; -1 forces the next frame to refit
      *  (set when a reconcile dropped or requeued a caster). */
     _cachedContentVersion: number;
+    /** Set after a static-only frame: the next frame draws the dynamic casters over the cache again,
+     *  whether or not any of them moved. */
+    _redrawDynamic?: boolean;
+    /** The static cache as a texture to sample (`getCsmStaticTexture`), made the first time it is asked for. */
+    _staticTexture?: Texture2D;
 }
 
 interface MeshTransfer {
@@ -234,13 +241,13 @@ export function ensureCsmShadowCacheState(
     const materialViews = new Map<Material, MaterialView>();
     const cascadeCount = cfg._numCascades;
     const cache = sg._csmCache!;
-    const gate = createCsmRefitGate<Mesh>({ refitAngle: cache._refitAngle, refitMaxIntervalMs: cache._refitMaxIntervalMs });
+    const gate = createCsmRefitGate<Mesh>({ refitAngle: cache._refitAngle, refitMaxIntervalMs: cache._refitMaxIntervalMs, still: cache._still });
     gate.syncCasters(casterMeshes);
     const cacheTexture = engine._device.createTexture({
         label: "csm-static-cache",
         size: { width: cfg._mapSize, height: cfg._mapSize, depthOrArrayLayers: cascadeCount },
         format: "depth32float",
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC | GPUTextureUsage.TEXTURE_BINDING,
     });
     const tasks: RenderTask[] = [];
     const staticTasks: RenderTask[] = [];
@@ -380,6 +387,17 @@ export function renderCsmShadowMapCached(engine: EngineContext, sg: ShadowGenera
     if (!camera) {
         return 0;
     }
+    // A frame of the static casters alone (`setShadowStaticOnly`): the cache as it stands, copied
+    // in whole, nothing refitted and nothing dynamic drawn; the next frame draws the dynamic over it again.
+    if (sg._staticOnly) {
+        engine._currentEncoder.copyTextureToTexture(
+            { texture: cached._cacheTexture },
+            { texture: sg._depthTexture },
+            { width: cfg._mapSize, height: cfg._mapSize, depthOrArrayLayers: cfg._numCascades }
+        );
+        cached._redrawDynamic = true;
+        return 0;
+    }
     const [camVersion, camAspect] = csmFitKey(cached._scene, camera, cfg);
     const cameraChanged = camVersion !== cached._lastCamVersion || camAspect !== cached._lastCamAspect;
     const light = sg._light as DirectionalLight;
@@ -412,7 +430,9 @@ export function renderCsmShadowMapCached(engine: EngineContext, sg: ShadowGenera
     }
     const scheduler = cached._staticScheduler;
     const hadPending = scheduler.pending();
-    if (!decision.renderDynamic && !hadPending) {
+    const redraw = cached._redrawDynamic === true;
+    cached._redrawDynamic = false;
+    if (!decision.renderDynamic && !hadPending && !redraw) {
         return 0;
     }
     let draws = 0;
@@ -435,7 +455,7 @@ export function renderCsmShadowMapCached(engine: EngineContext, sg: ShadowGenera
     }
     // A dynamic-caster change requires clearing and redrawing every live layer. Otherwise a spread
     // frame touches only the cascades whose static depth and receiver transform were just advanced.
-    if (cached._gate._lastDynamicChanged() || cascades?.length === cfg._numCascades) {
+    if (redraw || cached._gate._lastDynamicChanged() || cascades?.length === cfg._numCascades) {
         engine._currentEncoder.copyTextureToTexture(
             { texture: cached._cacheTexture },
             { texture: sg._depthTexture },
@@ -506,4 +526,31 @@ function createLayerTarget(texture: GPUTexture, cascade: number, mapSize: number
         _eager: true,
         _ownsDepthTexture: false,
     };
+}
+
+/**
+ * A static-cache CSM map's static layer, to sample as a receiver samples the map itself (a depth 2d-array
+ * with the generator's comparison sampler, transformed by the same receiver UBO): what the map holds
+ * with no dynamic caster drawn into it. Sampled beside the map, it tells a dynamic caster's shadow from
+ * a static one. Null until the cache is built; a new texture once it is built again (a map resized),
+ * so ask each frame and rebind when it changes.
+ */
+export function getCsmStaticTexture(sg: ShadowGenerator): Texture2D | null {
+    const state = sg._shadowTaskState as Partial<CsmCachedTaskState> | undefined;
+    const texture = state?._cacheTexture;
+    if (!state || !texture) {
+        return null;
+    }
+    if (state._staticTexture?.texture !== texture) {
+        state._staticTexture = {
+            texture,
+            view: texture.createView({ dimension: "2d-array" }),
+            sampler: sg._depthSampler,
+            width: texture.width,
+            height: texture.height,
+            _sampleType: "depth",
+        };
+        acquireTexture(state._staticTexture);
+    }
+    return state._staticTexture;
 }

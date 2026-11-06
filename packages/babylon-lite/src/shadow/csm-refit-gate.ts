@@ -23,7 +23,7 @@ export interface CsmRefitCaster {
 }
 
 /** Options for {@link createCsmRefitGate}. */
-export interface CsmRefitGateOptions {
+export interface CsmRefitGateOptions<M extends CsmRefitCaster = CsmRefitCaster> {
     /** Accumulated sun-rotation angle (radians) since the last refit that forces the next one.
      *  The sun drifts a different float every frame in normal play, so an exact-equality light
      *  key would never hold; this epsilon is what lets the cache survive a slowly moving sun. */
@@ -34,6 +34,10 @@ export interface CsmRefitGateOptions {
     refitMaxIntervalMs: number;
     /** Consecutive quiet frames before a dynamic caster becomes demotion-pending. Default 120. */
     demoteQuietFrames?: number;
+    /** Which casters stand still, as the caller knows them: those it says yes to move into the static
+     *  set at the first refit and stay there, a change re-rendering the cache with them where they now
+     *  are; the rest stay dynamic. Omitted, a caster is static once it has been quiet a while. */
+    still?: (caster: M) => boolean;
 }
 
 /** Decision for one frame. `refit` implies `renderDynamic`. */
@@ -96,10 +100,13 @@ function casterVersion(caster: CsmRefitCaster): number {
 }
 
 /** Create a refit gate. One instance per CSM generator task state. */
-export function createCsmRefitGate<M extends CsmRefitCaster>(options: CsmRefitGateOptions): CsmRefitGate<M> {
+export function createCsmRefitGate<M extends CsmRefitCaster>(options: CsmRefitGateOptions<M>): CsmRefitGate<M> {
     const refitAngle = options.refitAngle;
     const refitMaxIntervalMs = options.refitMaxIntervalMs;
     const demoteQuietFrames = options.demoteQuietFrames ?? 120;
+    const still = options.still;
+    /** A dynamic caster's time to move into the static set. */
+    const settled = (m: M, slot: CasterSlot) => (still ? still(m) : slot._quiet >= demoteQuietFrames);
 
     const slots = new Map<M, CasterSlot>();
     let casters: readonly M[] = [];
@@ -184,10 +191,14 @@ export function createCsmRefitGate<M extends CsmRefitCaster>(options: CsmRefitGa
                 if (slot._dynamic) {
                     dynamicChanged ||= changed;
                     slot._quiet = changed ? 0 : slot._quiet + 1;
-                    if (slot._quiet >= demoteQuietFrames) {
+                    if (settled(m, slot)) {
                         pendingDemotions++;
                     }
                     dynamicSum += v;
+                } else if (changed && still) {
+                    // A caster known to stand still changed (rebuilt, its instances laid out again): it
+                    // stays static, and the static sum's change re-renders the cache with it as it now is.
+                    staticSum += v;
                 } else if (changed) {
                     // A static caster churned: promote immediately. Its depth is baked into
                     // the cache at its OLD transform, so this frame must also refit (the
@@ -227,7 +238,7 @@ export function createCsmRefitGate<M extends CsmRefitCaster>(options: CsmRefitGa
             // Measured on the playtest save: the full 566-caster overlay persisted indefinitely.
             // So pending demotions may trigger ONE refit themselves, rate-limited to the quiet
             // threshold so an oscillating caster costs at most one extra refit per quiet period.
-            const demotionOverdue = pendingDemotions > 0 && framesSinceRefit >= demoteQuietFrames;
+            const demotionOverdue = pendingDemotions > 0 && (still !== undefined || framesSinceRefit >= demoteQuietFrames);
 
             const membershipCause = force || !hasRefit || casterSetChanged || promoted || staticSum !== lastStaticSum || cameraChanged || demotionOverdue;
             const refit = membershipCause || angleExceeded || intervalElapsed;
@@ -239,7 +250,7 @@ export function createCsmRefitGate<M extends CsmRefitCaster>(options: CsmRefitGa
                 // quiet frame would either tear or force an extra refit for nothing.
                 for (const m of casters) {
                     const slot = slots.get(m)!;
-                    if (slot._dynamic && slot._quiet >= demoteQuietFrames) {
+                    if (slot._dynamic && settled(m, slot)) {
                         slot._dynamic = false;
                         onDemote(m);
                         demoted++;
