@@ -387,17 +387,6 @@ export function renderCsmShadowMapCached(engine: EngineContext, sg: ShadowGenera
     if (!camera) {
         return 0;
     }
-    // A frame of the static casters alone (`setShadowStaticOnly`): the cache as it stands, copied
-    // in whole, nothing refitted and nothing dynamic drawn; the next frame draws the dynamic over it again.
-    if (sg._staticOnly) {
-        engine._currentEncoder.copyTextureToTexture(
-            { texture: cached._cacheTexture },
-            { texture: sg._depthTexture },
-            { width: cfg._mapSize, height: cfg._mapSize, depthOrArrayLayers: cfg._numCascades }
-        );
-        cached._redrawDynamic = true;
-        return 0;
-    }
     const [camVersion, camAspect] = csmFitKey(cached._scene, camera, cfg);
     const cameraChanged = camVersion !== cached._lastCamVersion || camAspect !== cached._lastCamAspect;
     const light = sg._light as DirectionalLight;
@@ -430,9 +419,13 @@ export function renderCsmShadowMapCached(engine: EngineContext, sg: ShadowGenera
     }
     const scheduler = cached._staticScheduler;
     const hadPending = scheduler.pending();
+    // A frame of the static casters alone (`setShadowStaticOnly`) refits as any frame does, or what
+    // it shades is shaded by a fit to where the camera was; it then holds the cache alone, and the
+    // next frame draws the dynamic over it again.
+    const staticOnly = sg._staticOnly !== undefined;
     const redraw = cached._redrawDynamic === true;
-    cached._redrawDynamic = false;
-    if (!decision.renderDynamic && !hadPending && !redraw) {
+    cached._redrawDynamic = staticOnly;
+    if (!decision.renderDynamic && !hadPending && !redraw && !staticOnly) {
         return 0;
     }
     let draws = 0;
@@ -452,6 +445,15 @@ export function renderCsmShadowMapCached(engine: EngineContext, sg: ShadowGenera
         if (!scheduler.pending()) {
             cached._pendingCascades = null;
         }
+    }
+    if (staticOnly) {
+        engine._currentEncoder.copyTextureToTexture(
+            { texture: cached._cacheTexture },
+            { texture: sg._depthTexture },
+            { width: cfg._mapSize, height: cfg._mapSize, depthOrArrayLayers: cfg._numCascades }
+        );
+        sg._staticOnly = "drawn";
+        return draws;
     }
     // A dynamic-caster change requires clearing and redrawing every live layer. Otherwise a spread
     // frame touches only the cascades whose static depth and receiver transform were just advanced.

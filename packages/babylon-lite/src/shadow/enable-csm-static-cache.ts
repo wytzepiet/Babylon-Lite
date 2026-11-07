@@ -91,7 +91,13 @@ export function enableCsmStaticCache(engine: EngineContext, sg: ShadowGenerator,
  * pass rendered then is shadowed by what stands still and by nothing that moves; the first frame after
  * draws the dynamic casters over the cache again, whether or not they moved. A generator without the
  * static cache ignores it.
+ *
+ * Turning it off says whether a frame drew the map so while it was on: none did while the generator
+ * was off or its caster set was still loading, and what was shaded then was shaded by whatever the map
+ * held before.
  */
-export function setShadowStaticOnly(sg: ShadowGenerator, on: boolean): void {
-    sg._staticOnly = on;
+export function setShadowStaticOnly(sg: ShadowGenerator, on: boolean): boolean {
+    const drawn = sg._staticOnly === "drawn";
+    sg._staticOnly = on ? "asked" : undefined;
+    return drawn;
 }
