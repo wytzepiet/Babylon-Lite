@@ -176,6 +176,8 @@ interface BoundMesh extends MeshRebuildResources {
     readonly _mesh: Mesh;
     readonly _binding: DrawBinding;
     readonly _view: StandardGeometryMaterialView | PbrGeometryMaterialView | NodeGeometryMaterialView;
+    /** The forward renderable a PBR mesh's binding was composed against. */
+    readonly _forward?: Renderable;
 }
 
 interface GeometryRendererTaskInternal extends GeometryRendererTask {
@@ -520,7 +522,7 @@ function recordTask(task: GeometryRendererTaskInternal, config: GeometryRenderer
  *  stale view. The mesh source mirrors `record()`: the common auto path (`config.meshes`
  *  omitted) reads `sc.meshes`; caller-supplied off-scene meshes remain supported, while
  *  the task-local removal list excludes meshes explicitly removed through `removeFromScene`. */
-function rebuildBoundMeshes(task: GeometryRendererTaskInternal, config: GeometryRendererTaskConfig, eng: EngineContext, sc: SceneContext): void {
+function rebuildBoundMeshes(task: GeometryRendererTaskInternal, config: GeometryRendererTaskConfig, eng: EngineContext, sc: SceneContext, keep = false): void {
     // Make-before-break: build a complete candidate with its own resource batches,
     // publish it atomically, then retire the old generation after the next submitted
     // frame drains. Unpublished candidate batches can be released synchronously.
@@ -533,6 +535,17 @@ function rebuildBoundMeshes(task: GeometryRendererTaskInternal, config: Geometry
     const attachmentTypes = task._attachments.map((a) => a._type);
     // Forward renderable each PBR group currently tracks per mesh (filled lazily below).
     const forwardBuilt = new Map<unknown, Map<Mesh | undefined, Renderable>>();
+    // A scene change (a mesh added or removed anywhere) leaves most meshes as they were: a PBR mesh
+    // drawn with the same view, against the same forward renderable, keeps its binding, rather than
+    // every mesh's UBOs and bind groups being made again for every mesh that came or went. The same
+    // render targets only: a re-record (resize) binds everything anew.
+    const kept = new Map<Mesh, BoundMesh>();
+    if (keep) {
+        for (const b of oldBound) {
+            if (b._forward) kept.set(b._mesh, b);
+        }
+    }
+    const reused = new Set<BoundMesh>();
     try {
         for (const mesh of meshes) {
             if (removed?.has(mesh)) {
@@ -564,15 +577,22 @@ function rebuildBoundMeshes(task: GeometryRendererTaskInternal, config: Geometry
                     continue;
                 }
             }
+            const view = ensureView(task, nextViews, resolved, attachmentTypes, config, keep);
+            const forward = resolved._family === "pbr" ? forwardBuilt.get(sc._groups.get((resolved._mat as Material)._buildGroup))?.get(mesh) : undefined;
+            const was = kept.get(mesh);
+            if (was && forward && was._view === view && was._forward === forward) {
+                nextBound.push(was);
+                reused.add(was);
+                continue;
+            }
             const resources: MeshRebuildResources = { _lifetimeDisposers: [] };
             created.push(resources);
-            const view = ensureView(task, nextViews, resolved, attachmentTypes, config);
             // Natural dispatch — view._buildGroup is the standard or PBR geometry
             // builder, its _rebuildSingle returns the per-mesh geometry-MRT Renderable.
             const renderable: Renderable = view._buildGroup._rebuildSingle!(sc, mesh, view, resources);
             renderable._lifetimeDisposers = resources._lifetimeDisposers;
             const binding = renderable.bind(eng, task._signature as unknown as RenderTargetSignature);
-            nextBound.push({ _mesh: mesh, _binding: binding, _view: view, _lifetimeDisposers: resources._lifetimeDisposers });
+            nextBound.push({ _mesh: mesh, _binding: binding, _view: view, _forward: forward, _lifetimeDisposers: resources._lifetimeDisposers });
         }
     } catch (error) {
         releaseGeometryResources(created);
@@ -588,7 +608,7 @@ function rebuildBoundMeshes(task: GeometryRendererTaskInternal, config: Geometry
     task._views = nextViews;
     task._boundVer = sc._renderableVersion;
 
-    retireGeometryBindings(eng, oldBound);
+    retireGeometryBindings(eng, reused.size ? oldBound.filter((b) => !reused.has(b)) : oldBound);
 }
 
 function releaseGeometryResources(entries: readonly MeshRebuildResources[]): void {
@@ -617,7 +637,8 @@ function ensureView(
     views: Map<Material, StandardGeometryMaterialView | PbrGeometryMaterialView | NodeGeometryMaterialView>,
     resolved: ResolvedMaterial,
     attachmentTypes: readonly GeometryTextureType[],
-    config: GeometryRendererTaskConfig
+    config: GeometryRendererTaskConfig,
+    keep: boolean
 ): StandardGeometryMaterialView | PbrGeometryMaterialView | NodeGeometryMaterialView {
     const mat = resolved._mat as Material;
     const cached = views.get(mat);
@@ -627,7 +648,8 @@ function ensureView(
     // The last generation's view of this material, while the material is as it was then: its
     // caches (composed WGSL, layouts, pipelines) live on the view, and a view made anew for every
     // rebuild — every mesh added or removed anywhere in the scene — compiles every pipeline again.
-    const kept = task._views.get(mat);
+    // Only on a scene change: a re-record (resize, a renewed device) makes every view anew.
+    const kept = keep ? task._views.get(mat) : undefined;
     if (kept && mat._renderFeatures && _viewFeatures.get(kept) === mat._renderFeatures) {
         views.set(mat, kept);
         return kept;
@@ -768,7 +790,7 @@ function executeTask(task: GeometryRendererTaskInternal, eng: EngineContext, sc:
     // make-before-break, so the frame just submitted stays valid. Mirrors the forward
     // RenderTask's `_lastVersion` auto-resync in `prepareRenderTaskPass`.
     if (sc._renderableVersion !== task._boundVer) {
-        rebuildBoundMeshes(task, config, eng, sc);
+        rebuildBoundMeshes(task, config, eng, sc, true);
     }
     const viewport = camera.viewport;
     const aspect = (mrt._width / mrt._height) * (viewport ? viewport.width / viewport.height : 1);

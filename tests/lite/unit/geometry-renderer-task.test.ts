@@ -1328,7 +1328,7 @@ describe("GeometryRendererTask", () => {
         }
     });
 
-    // Every record and every renderable-version change builds NEW views, so a module cached per view would be
+    // Every record builds NEW views, so a module cached per view would be
     // compiled again for byte-identical WGSL. The Standard geometry family shares one module per device and code.
     describe("geometry shader module sharing", () => {
         type BoundEntry = { _binding: object; _view: { source: unknown } };
@@ -1370,10 +1370,10 @@ describe("GeometryRendererTask", () => {
             scene._renderableVersion++;
             internal.execute();
 
+            // A scene change keeps each unchanged material's view, and with it its pipelines.
             expect(internal._bound).toHaveLength(2);
             for (const entry of internal._bound) {
-                expect(previous.map((p) => p._binding)).not.toContain(entry._binding);
-                expect(previous.map((p) => p._view)).not.toContain(entry._view);
+                expect(previous.map((p) => p._view)).toContain(entry._view);
             }
             expect(createShaderModule).not.toHaveBeenCalled();
             const [vertex, fragment] = boundModules(previous[0]!);
