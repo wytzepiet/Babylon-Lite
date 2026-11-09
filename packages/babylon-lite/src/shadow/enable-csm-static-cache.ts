@@ -4,8 +4,9 @@ import type { Mesh } from "../mesh/mesh.js";
 
 /** Options for {@link enableCsmStaticCache}. */
 export interface CsmStaticCacheOptions {
-    /** Accumulated sun-rotation angle (radians) since the last cascade refit that forces the next one. */
-    refitAngle: number;
+    /** Accumulated sun-rotation angle (radians) since the last cascade refit that forces the next one.
+     *  Not asked for with `holdFit`. */
+    refitAngle?: number;
     /** Force a refit after this much wall time, including while the light is paused. Default 0 (no interval floor). */
     refitMaxIntervalMs?: number;
     /** Spread a drift-only refit's static re-render over frames: at most this many cascades are
@@ -18,6 +19,11 @@ export interface CsmStaticCacheOptions {
      *  rest are drawn over it every frame, however long they stand. Omitted, the cache learns it: every
      *  caster starts over the cache and is moved into it once it has stood still a while. */
     still?: (mesh: Mesh) => boolean;
+    /** The map is fitted to the light and the camera only on a static-only frame (`setShadowStaticOnly`),
+     *  and always then; between them the static layer keeps its fit, drawn again in it when its casters
+     *  change, so a picture drawn in its shade stays true to it. The layer as it stood before that frame's
+     *  fit is kept beside it (`getCsmPreviousStaticTexture`), to move a shadow between the two. */
+    holdFit?: boolean;
 }
 
 let enabling: WeakMap<ShadowGenerator, Promise<void>> | null = null;
@@ -33,7 +39,8 @@ export function enableCsmStaticCache(engine: EngineContext, sg: ShadowGenerator,
     if (sg._shadowType !== "csm") {
         return Promise.reject(new Error("enableCsmStaticCache requires a CSM shadow generator"));
     }
-    if (!Number.isFinite(options.refitAngle) || options.refitAngle <= 0) {
+    const refitAngle = options.holdFit ? Infinity : options.refitAngle ?? NaN;
+    if (!options.holdFit && (!Number.isFinite(refitAngle) || refitAngle <= 0)) {
         return Promise.reject(new RangeError("enableCsmStaticCache requires a positive finite refitAngle"));
     }
     const staticCascadesPerFrame = options.staticCascadesPerFrame ?? 0;
@@ -57,7 +64,7 @@ export function enableCsmStaticCache(engine: EngineContext, sg: ShadowGenerator,
         format: "depth32float",
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
-    sg._csmCache = { _refitAngle: options.refitAngle, _refitMaxIntervalMs: options.refitMaxIntervalMs ?? 0, _staticCascadesPerFrame: staticCascadesPerFrame, _still: options.still };
+    sg._csmCache = { _refitAngle: refitAngle, _holdFit: options.holdFit, _refitMaxIntervalMs: options.refitMaxIntervalMs ?? 0, _staticCascadesPerFrame: staticCascadesPerFrame, _still: options.still };
     oldTexture.destroy();
     const promise = import("./csm-shadow-cache.js").then((module) => {
         sg._csmCache!._loaded = true;

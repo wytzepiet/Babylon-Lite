@@ -81,6 +81,8 @@ export interface ShadowGenerator {
         _staticCascadesPerFrame?: number;
         /** @internal Which casters stand still, if the application says (`CsmStaticCacheOptions.still`). */
         _still?: (mesh: import("../mesh/mesh.js").Mesh) => boolean;
+        /** @internal The fit waits for static-only frames (`CsmStaticCacheOptions.holdFit`). */
+        _holdFit?: boolean;
         /** @internal */
         _loaded?: boolean;
     };

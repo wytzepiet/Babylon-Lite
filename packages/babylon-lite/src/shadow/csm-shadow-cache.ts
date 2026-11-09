@@ -37,6 +37,10 @@ import { acquireTexture } from "../resource/texture-acquire.js";
 interface CsmCachedTaskState extends CsmTaskState {
     _staticTasks: RenderTask[];
     _cacheTexture: GPUTexture;
+    /** With `holdFit`: the static layer as it stood before the last static-only frame fitted it again. */
+    _previousTexture: GPUTexture | null;
+    /** As `_staticTexture`, for `_previousTexture`. */
+    _previousSampled?: Texture2D;
     _gate: CsmRefitGate<Mesh>;
     /** Spreads a drift-only refit's static re-render over frames (`staticCascadesPerFrame`). */
     _staticScheduler: CsmStaticRefitScheduler;
@@ -249,6 +253,14 @@ export function ensureCsmShadowCacheState(
         format: "depth32float",
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC | GPUTextureUsage.TEXTURE_BINDING,
     });
+    const previousTexture = cache._holdFit
+        ? engine._device.createTexture({
+              label: "csm-static-previous",
+              size: { width: cfg._mapSize, height: cfg._mapSize, depthOrArrayLayers: cascadeCount },
+              format: "depth32float",
+              usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING,
+          })
+        : null;
     const tasks: RenderTask[] = [];
     const staticTasks: RenderTask[] = [];
     const cameras = [];
@@ -329,6 +341,7 @@ export function ensureCsmShadowCacheState(
                 task.dispose();
             }
             cacheTexture.destroy();
+            previousTexture?.destroy();
         },
     };
     const casterMatGens = new Map<Material, number | undefined>();
@@ -364,6 +377,7 @@ export function ensureCsmShadowCacheState(
         _cascadeScratch: _createCascadeScratch(cascadeCount),
         _staticTasks: staticTasks,
         _cacheTexture: cacheTexture,
+        _previousTexture: previousTexture,
         _gate: gate,
         _staticScheduler: createCsmStaticRefitScheduler(cascadeCount, cache._staticCascadesPerFrame ?? 0),
         _pendingCascades: null,
@@ -397,6 +411,13 @@ export function renderCsmShadowMapCached(engine: EngineContext, sg: ShadowGenera
     // must re-render it, exactly like a sun-angle change. Without this the layer keeps drawing the
     // previous geometry until some unrelated refit (a camera move) happens to redraw it.
     const contentChanged = cached._scene._renderableVersion !== cached._cachedContentVersion;
+    // A frame of the static casters alone (`setShadowStaticOnly`) refits as any frame does, or what
+    // it shades is shaded by a fit to where the camera was; it then holds the cache alone, and the
+    // next frame draws the dynamic over it again. With `holdFit` it is the only frame that fits, and
+    // it always does; any other refit draws the static layer again where it is.
+    const staticOnly = sg._staticOnly !== undefined;
+    const hold = sg._csmCache!._holdFit === true;
+    const fits = !hold || staticOnly;
     cached._gate.syncCasters(cached._casterMeshes);
     const lightWorld = light.worldMatrix;
     const direction = light.direction;
@@ -405,8 +426,8 @@ export function renderCsmShadowMapCached(engine: EngineContext, sg: ShadowGenera
         lightWorld[1]! * direction.x + lightWorld[5]! * direction.y + lightWorld[9]! * direction.z,
         lightWorld[2]! * direction.x + lightWorld[6]! * direction.y + lightWorld[10]! * direction.z,
         typeof performance !== "undefined" ? performance.now() : Date.now(),
-        cameraChanged,
-        cfg._forceRefreshEveryFrame || contentChanged,
+        cameraChanged && fits,
+        cfg._forceRefreshEveryFrame || contentChanged || (hold && staticOnly),
         cached._onPromote,
         cached._onDemote
     );
@@ -419,26 +440,35 @@ export function renderCsmShadowMapCached(engine: EngineContext, sg: ShadowGenera
     }
     const scheduler = cached._staticScheduler;
     const hadPending = scheduler.pending();
-    // A frame of the static casters alone (`setShadowStaticOnly`) refits as any frame does, or what
-    // it shades is shaded by a fit to where the camera was; it then holds the cache alone, and the
-    // next frame draws the dynamic over it again.
-    const staticOnly = sg._staticOnly !== undefined;
     const redraw = cached._redrawDynamic === true;
     cached._redrawDynamic = staticOnly;
     if (!decision.renderDynamic && !hadPending && !redraw && !staticOnly) {
         return 0;
     }
     let draws = 0;
+    // Held, a refit between static-only frames keeps the fit it has (once it has one).
+    const refits = decision.refit && (fits || cached._lastCamVersion === -1);
     if (decision.refit) {
-        cached._pendingCascades = _computeCsmCascades(cached._scene, camera, sg._light as DirectionalLight, cfg, cached._casterMeshes, cached._cascadeScratch);
-        cached._lastCamVersion = camVersion;
-        cached._lastCamAspect = camAspect;
+        if (refits) {
+            cached._pendingCascades = _computeCsmCascades(cached._scene, camera, sg._light as DirectionalLight, cfg, cached._casterMeshes, cached._cascadeScratch);
+            cached._lastCamVersion = camVersion;
+            cached._lastCamAspect = camAspect;
+            if (cached._previousTexture) {
+                engine._currentEncoder.copyTextureToTexture(
+                    { texture: cached._cacheTexture },
+                    { texture: cached._previousTexture },
+                    { width: cfg._mapSize, height: cfg._mapSize, depthOrArrayLayers: cfg._numCascades }
+                );
+            }
+        }
         cached._cachedContentVersion = cached._scene._renderableVersion;
-        scheduler.arm(cached._gate._lastRefitDriftOnly() && !scheduler.pending());
+        scheduler.arm(refits && cached._gate._lastRefitDriftOnly() && !scheduler.pending());
     }
     const cascades = scheduler.pending() ? scheduler.take() : null;
     if (cascades) {
-        publishCsmCascades(engine, sg, cached, cfg, cached._pendingCascades!, cascades);
+        if (cached._pendingCascades) {
+            publishCsmCascades(engine, sg, cached, cfg, cached._pendingCascades, cascades);
+        }
         for (const cascade of cascades) {
             draws += cached._staticTasks[cascade]!.execute?.() ?? 0;
         }
@@ -544,15 +574,37 @@ export function getCsmStaticTexture(sg: ShadowGenerator): Texture2D | null {
         return null;
     }
     if (state._staticTexture?.texture !== texture) {
-        state._staticTexture = {
-            texture,
-            view: texture.createView({ dimension: "2d-array" }),
-            sampler: sg._depthSampler,
-            width: texture.width,
-            height: texture.height,
-            _sampleType: "depth",
-        };
-        acquireTexture(state._staticTexture);
+        state._staticTexture = sampled(sg, texture);
     }
     return state._staticTexture;
+}
+
+/**
+ * With `holdFit`: the static layer as it stood before the last static-only frame fitted it again,
+ * sampled as `getCsmStaticTexture`'s is, by the fit it then had (the receiver data before the latest
+ * `onCsmReceiverUpdate`). Null without `holdFit`, or until the cache is built.
+ */
+export function getCsmPreviousStaticTexture(sg: ShadowGenerator): Texture2D | null {
+    const state = sg._shadowTaskState as Partial<CsmCachedTaskState> | undefined;
+    const texture = state?._previousTexture;
+    if (!state || !texture) {
+        return null;
+    }
+    if (state._previousSampled?.texture !== texture) {
+        state._previousSampled = sampled(sg, texture);
+    }
+    return state._previousSampled;
+}
+
+function sampled(sg: ShadowGenerator, texture: GPUTexture): Texture2D {
+    const t: Texture2D = {
+        texture,
+        view: texture.createView({ dimension: "2d-array" }),
+        sampler: sg._depthSampler,
+        width: texture.width,
+        height: texture.height,
+        _sampleType: "depth",
+    };
+    acquireTexture(t);
+    return t;
 }
