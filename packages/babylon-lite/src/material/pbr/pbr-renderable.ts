@@ -104,13 +104,7 @@ export async function buildPbrRenderables(scene: SceneContext, meshes: Mesh[], e
     // Replaces ~11 sequential meshes.some() loops (was O(11N)).
     let hasSomeSkeletons = false;
     let hasSomeMorphs = false;
-    let hasSomeThinInstances = false;
     let hasCullingTI = false;
-    // Only gates the shared `pbr-template-ext` lazy import below (alongside vertex-color
-    // and uv2); the uv-transform *ext* is registered by `enableMaterialUvTransform`, not by a scan.
-    let hasAnyUvTransform = false;
-    let hasAnyUv2 = false;
-    let hasAnyVertexColor = false;
     let hasAnyFlatNormal = false;
     let hasGammaAlbedo = false;
     for (let i = 0; i < meshes.length; i++) {
@@ -118,15 +112,7 @@ export async function buildPbrRenderables(scene: SceneContext, meshes: Mesh[], e
         const mat = m.material as PbrMaterialProps;
         hasSomeSkeletons ||= !!m.skeleton;
         hasSomeMorphs ||= !!m.morphTargets;
-        hasSomeThinInstances ||= !!m.thinInstances;
         hasCullingTI ||= !!m.thinInstances?._gpuCullingEnabled;
-        hasAnyUvTransform ||= !!mat._hasUvTx;
-        // UV2 counts when ANY PBR channel samples texCoord 1 (occlusion included, via `_uv2Mask`
-        // bit 32) — precomputed as `_uv2Mask` on the material by the glTF slow path (0/undefined on
-        // the fast path). Occlusion-on-UV1 (incl. KHR_texture_basisu) always routes through that slow
-        // path, so its UV2 usage is already reflected here without a separate occlusionTexCoord check.
-        hasAnyUv2 ||= !!m._gpu.uv2Buffer && !!(mat as { _uv2Mask?: number })._uv2Mask;
-        hasAnyVertexColor ||= !!m._gpu.colorBuffer;
         hasAnyFlatNormal ||= !!(m as { _flatNormal?: boolean })._flatNormal;
         hasGammaAlbedo ||= !!mat._gammaAlbedo;
     }
@@ -144,11 +130,7 @@ export async function buildPbrRenderables(scene: SceneContext, meshes: Mesh[], e
         return (
             (!hasSomeSkeletons && !!mesh.skeleton) ||
             (!hasSomeMorphs && !!mesh.morphTargets) ||
-            (!hasSomeThinInstances && !!mesh.thinInstances) ||
             (!hasCullingTI && !!mesh.thinInstances?._gpuCullingEnabled) ||
-            (!hasAnyUvTransform && !!mat._hasUvTx) ||
-            (!hasAnyUv2 && !!mesh._gpu.uv2Buffer && !!(mat as { _uv2Mask?: number })._uv2Mask) ||
-            (!hasAnyVertexColor && !!mesh._gpu.colorBuffer) ||
             (!hasAnyFlatNormal && !!(mesh as { _flatNormal?: boolean })._flatNormal) ||
             (!hasGammaAlbedo && !!mat._gammaAlbedo) ||
             (!hasAnyAffectedLight && affected > 0) ||
@@ -230,13 +212,12 @@ export async function buildPbrRenderables(scene: SceneContext, meshes: Mesh[], e
         [hasSomeMorphs, () => import("./fragments/morph-fragment.js")],
     ]);
 
-    // Lazy-load pbr-template-ext when any advanced features are present.
-    // Scene1 has none of these, so it won't pay the ~1.5KB cost.
-    let _createPbrTemplateExt: typeof import("./pbr-template-ext.js").createPbrTemplateExt | null = null;
-    if (hasAnyUvTransform || hasAnyVertexColor || hasAnyUv2) {
-        const extMod = await import("./pbr-template-ext.js");
-        _createPbrTemplateExt = extMod.createPbrTemplateExt;
-    }
+    // Loaded whatever this build's meshes are. Every later build of a mesh in this group, a shadow
+    // caster's among them, is composed with what this one loaded: a mesh with vertex colours built
+    // against a context without the ext got a pipeline with no colour buffer, while its draw still bound
+    // one, so the next buffer (its instances' matrices) was read from the colours. Its shadow stood at
+    // garbage transforms, or the whole frame was refused.
+    const _createPbrTemplateExt = (await import("./pbr-template-ext.js")).createPbrTemplateExt;
 
     let _createThinInstanceFragment: ((hasColor: boolean) => ShaderFragment) | null = null;
     let _syncThinInstanceBuffers: SyncThinInstanceBuffers | null = null;
@@ -249,7 +230,8 @@ export async function buildPbrRenderables(scene: SceneContext, meshes: Mesh[], e
     // cost nothing, and it never recreates the buffer for a same-capacity update — keeping the cached
     // bundle's setVertexBuffer reference valid.
     let _syncThinInstanceForDraw: ((engine: EngineContext, ti: ThinInstanceData, hasColor: boolean, gpu: Mesh["_gpu"]) => GPUBuffer | null) | null = null;
-    if (hasSomeThinInstances) {
+    // Loaded whatever this build's meshes are, for the same reason as the ext above.
+    {
         const mod = await import("../../shader/fragments/thin-instance-fragment.js");
         _createThinInstanceFragment = mod.createThinInstanceFragment;
         const gpuMod = await import("../../mesh/thin-instance-gpu.js");
