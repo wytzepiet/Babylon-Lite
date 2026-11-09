@@ -609,6 +609,9 @@ interface ResolvedMaterial {
     _family: "standard" | "pbr" | "node";
 }
 
+/** The source material's render features each view was made from: a material rebuilt since has new ones. */
+const _viewFeatures = new WeakMap<object, unknown>();
+
 function ensureView(
     task: GeometryRendererTaskInternal,
     views: Map<Material, StandardGeometryMaterialView | PbrGeometryMaterialView | NodeGeometryMaterialView>,
@@ -616,9 +619,18 @@ function ensureView(
     attachmentTypes: readonly GeometryTextureType[],
     config: GeometryRendererTaskConfig
 ): StandardGeometryMaterialView | PbrGeometryMaterialView | NodeGeometryMaterialView {
-    const cached = views.get(resolved._mat as Material);
+    const mat = resolved._mat as Material;
+    const cached = views.get(mat);
     if (cached) {
         return cached;
+    }
+    // The last generation's view of this material, while the material is as it was then: its
+    // caches (composed WGSL, layouts, pipelines) live on the view, and a view made anew for every
+    // rebuild — every mesh added or removed anywhere in the scene — compiles every pipeline again.
+    const kept = task._views.get(mat);
+    if (kept && mat._renderFeatures && _viewFeatures.get(kept) === mat._renderFeatures) {
+        views.set(mat, kept);
+        return kept;
     }
     const viewConfig = {
         attachments: attachmentTypes,
@@ -639,7 +651,8 @@ function ensureView(
             : resolved._family === "pbr"
               ? task._createPbrGeometryView!(resolved._mat as PbrMaterialProps, viewConfig)
               : task._createNodeGeometryView!(resolved._mat as NodeMaterial, viewConfig);
-    views.set(resolved._mat as Material, view);
+    _viewFeatures.set(view, mat._renderFeatures);
+    views.set(mat, view);
     return view;
 }
 
